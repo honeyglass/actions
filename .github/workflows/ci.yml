@@ -1,0 +1,58 @@
+# Runs the same checks in every repository, so a commit made past lean-code's commit tool, such
+# as one from a pull request, cannot bring in a file that fails the format, lint, typecheck or tests.
+name: ci
+
+# pull_request, never pull_request_target. The second one runs in the context of the
+# target repository, with a writable token and the secrets in reach, while checking out
+# the fork's code. That is the Pwn Request pattern.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Read only, for the whole file. A workflow that cannot write cannot be turned into one
+# that pushes, tags or opens a release.
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    # The runner is a setting of each repository. A repository whose tests need macOS adds
+    # macos-latest to the list.
+    strategy:
+      # Every runner finishes, so a repository with two runners sees both results.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      # Pinned to a commit, not to a tag. A tag can be moved to another commit by
+      # anyone who gains write access to the action's repository, and every workflow
+      # that names the tag then runs their code on the next push. That is how
+      # tj-actions/changed-files was compromised in March 2025. A commit id addresses
+      # the content and cannot be moved. The comment is for readers and for
+      # Dependabot, which replaces the id and the comment together.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Without this the job's token is left in .git/config and every later step,
+          # including anything a dependency runs, can read and use it.
+          persist-credentials: false
+      # The supply check before the install, pinned to a pushed commit of this repository whose
+      # CI was green, as every consumer pins it. ./supply-check would run the code, lockfile and
+      # dependencies of the very commit it checks. The action sets up Node and pnpm through
+      # Corepack, installs its own dependencies first, and leaves both on for the steps below.
+      # SHA_OF_A_PUSHED_GREEN_MAIN_COMMIT stands here until main's first push is green and is
+      # then that commit's full sha; until then the job fails at this step.
+      - uses: honeyglass/actions/supply-check@SHA_OF_A_PUSHED_GREEN_MAIN_COMMIT
+      - run: pnpm install --frozen-lockfile
+      # Right after the install, before the steps below run code from node_modules: a link
+      # there that dangles or leads out of the checkout fails the job.
+      - uses: honeyglass/actions/supply-check@SHA_OF_A_PUSHED_GREEN_MAIN_COMMIT
+        with:
+          mode: links
+      - run: pnpm run format:check
+      # Every repository names its scripts lint, typecheck and test, so this file stays the
+      # same everywhere. --if-present skips the step in a repository without that script.
+      - run: pnpm run --if-present lint
+      - run: pnpm run --if-present typecheck
+      - run: pnpm run --if-present test

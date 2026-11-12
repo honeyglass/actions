@@ -1,0 +1,48 @@
+# Pinning actions to a commit id is only safe while someone moves the pin forward.
+# Dependabot replaces the id and the version comment together, so a pull request shows
+# which release the new id belongs to.
+#
+# A release has to be three days old before Dependabot proposes it, the same three days
+# that minimumReleaseAge in pnpm-workspace.yaml gives pnpm. Most compromised releases are
+# found and pulled within hours; the three days are the margin around that. The npm entry
+# also covers pnpm-lock.yaml.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    # '/' covers the workflows in .github/workflows, '/supply-check' the steps its action.yml
+    # runs in every caller's job.
+    directories:
+      - /
+      - /supply-check
+    # Same fixed time in every repository, Sunday 11:00 in Berlin, so pull requests arrive together.
+    schedule:
+      interval: weekly
+      day: sunday
+      time: '11:00'
+      timezone: Europe/Berlin
+    cooldown:
+      default-days: 3
+    groups:
+      all-actions:
+        patterns:
+          - '*'
+        update-types:
+          - 'minor'
+          - 'patch'
+  - package-ecosystem: npm
+    # One npm entry per pnpm-lock.yaml; this repository has one, at its root.
+    directory: /
+    schedule:
+      interval: weekly
+      day: sunday
+      time: '11:00'
+      timezone: Europe/Berlin
+    cooldown:
+      default-days: 3
+    groups:
+      all-dependencies:
+        patterns:
+          - '*'
+        update-types:
+          - 'minor'
+          - 'patch'
