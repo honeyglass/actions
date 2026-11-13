@@ -1,0 +1,59 @@
+# The supply check as a step: before a repository's install it refuses a local link, a pnpm
+# setting outside lean-code's template and every other dependency form the check does not allow;
+# after the install it refuses a symlink that leaves the checkout.
+#
+# The step first installs the check's own dependencies (yaml, zod, '@honeyglass/utils') from this
+# repository's pnpm-lock.yaml, frozen, with every integrity hash, without install scripts or a
+# pnpmfile, in the action's own folder, never in the caller's checkout. Then Node runs the check's
+# committed build, dist/supply-check/ci/index.js, in the caller's checkout. No bundle stands in for it.
+name: supply-check
+description: Refuses dependency forms outside lean-code's template before the install, and symlinks that leave the checkout after it.
+
+inputs:
+  mode:
+    description: check before the install, links after it; any other value fails the step.
+    default: check
+  repository:
+    description: The owner/name whose approved exceptions apply; check refuses to run without one.
+    default: ${{ github.repository }}
+
+runs:
+  using: composite
+  steps:
+    # Pinned to a commit, not to a tag. A tag can be moved to another commit by anyone who gains
+    # write access to the action's repository; a commit id addresses the content and cannot move.
+    # No cache, so no store another run saved reaches the install, and the step saves none into
+    # the caller's cache.
+    - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      with:
+        node-version: 24
+        package-manager-cache: false
+    # pnpm comes through Corepack, which ships with Node 24. package.json names the version and
+    # the sha512 of its tarball in packageManager, and Corepack refuses a download whose hash
+    # differs. The install reads this repository's own lockfile, so a caller's files decide nothing;
+    # it takes the dependencies alone, as dist/ is committed, and loads no pnpmfile.
+    - shell: bash
+      working-directory: ${{ github.action_path }}/..
+      run: |
+        corepack enable
+        pnpm install --frozen-lockfile --prod --ignore-scripts --ignore-pnpmfile
+    # The inputs reach the script as variables, never as text inside it, so no value runs as code.
+    # The mode is matched exactly first; any other value fails before the program runs. Only check
+    # gets TOKEN, the job's token; give the job contents: read. check asks GitHub's API whether a
+    # pinned commit of honeyglass/utils lies on its main branch, and GitHub allows 60 requests an
+    # hour to an address without a token. check takes the repository as its second argument.
+    - shell: bash
+      env:
+        MODE: ${{ inputs.mode }}
+        REPOSITORY: ${{ inputs.repository }}
+        TOKEN: ${{ github.token }}
+      run: |
+        entry="$GITHUB_ACTION_PATH/../dist/supply-check/ci/index.js"
+        case "$MODE" in
+          check) GITHUB_TOKEN="$TOKEN" env -u TOKEN node "$entry" check "$REPOSITORY" ;;
+          links) env -u TOKEN node "$entry" links ;;
+          *)
+            echo 'the input mode is check or links; any other value fails the step' >&2
+            exit 1
+            ;;
+        esac
