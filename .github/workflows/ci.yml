@@ -41,13 +41,11 @@ jobs:
       # CI was green, as every consumer pins it. ./supply-check would run the code, lockfile and
       # dependencies of the very commit it checks. The action sets up Node and pnpm through
       # Corepack, installs its own dependencies first, and leaves both on for the steps below.
-      # SHA_OF_A_PUSHED_GREEN_MAIN_COMMIT stands here until main's first push is green and is
-      # then that commit's full sha; until then the job fails at this step.
-      - uses: honeyglass/actions/supply-check@SHA_OF_A_PUSHED_GREEN_MAIN_COMMIT
+      - uses: honeyglass/actions/supply-check@c563386287787252c2d3d3586c64f9ac4d15fa4c
       - run: pnpm install --frozen-lockfile
       # Right after the install, before the steps below run code from node_modules: a link
       # there that dangles or leads out of the checkout fails the job.
-      - uses: honeyglass/actions/supply-check@SHA_OF_A_PUSHED_GREEN_MAIN_COMMIT
+      - uses: honeyglass/actions/supply-check@c563386287787252c2d3d3586c64f9ac4d15fa4c
         with:
           mode: links
       - run: pnpm run format:check
