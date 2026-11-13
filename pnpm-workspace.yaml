@@ -1,0 +1,28 @@
+# pnpm reads its settings from this file, not from package.json. Every rule here is
+# also explained in SECURITY.md. The supply check refuses any other setting or value.
+
+# A version has to be three days old before pnpm resolves it. A compromised release is
+# usually found and pulled within hours, so a fresh one never reaches this repository.
+# Dependabot waits the same three days before it opens a pull request, see
+# .github/dependabot.yml.
+minimumReleaseAge: 4320
+
+# No dependency runs an install script. pnpm blocks them unless a package is approved
+# under allowBuilds, and the list stays empty on purpose. strictDepBuilds turns a script
+# that would have been skipped into an install that fails, so nothing is silently ignored.
+allowBuilds: {}
+strictDepBuilds: true
+
+# Only a dependency named in package.json may come from a git repository or a tarball URL.
+# Every package below it comes from the registry, so no package deep in the tree can fetch
+# code from a host nobody chose.
+blockExoticSubdeps: true
+
+# A version published with weaker proof of its origin than the versions before it fails the
+# install. A package that came from its project's CI through trusted publishing and suddenly
+# comes from a plain token is what a stolen npm token looks like.
+trustPolicy: no-downgrade
+
+# pnpm loads no .pnpmfile.cjs, whose code would run at every install. The supply check
+# refuses a pnpm-workspace.yaml without this line.
+ignorePnpmfile: true

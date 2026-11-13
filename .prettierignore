@@ -1,0 +1,8 @@
+# written by pnpm on every install
+pnpm-lock.yaml
+
+# Markdown: Prettier turns *x* into _x_ and adds escapes, which changes what an agent reads
+*.md
+
+# the committed build: pnpm test compares it with a fresh tsc build, so no formatter may touch it
+dist/

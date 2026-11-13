@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "es2023",
+    "lib": ["es2023"],
+    "types": ["node"],
+    "module": "nodenext",
+    "strict": true,
+    "skipLibCheck": true,
+    "rewriteRelativeImportExtensions": true,
+    "declaration": true,
+    "rootDir": "supply-check",
+    "outDir": "dist/supply-check"
+  },
+  "include": ["supply-check"]
+}

@@ -1,0 +1,34 @@
+{
+  "name": "@honeyglass/actions",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "packageManager": "pnpm@12.9.0+sha512.8f64efa0b792986ca98ae568791bcd7722807e274c4f0c1d9853c62116495c584119db98762a2a5343b1684d361b9ae26fdd16d551666d7635346d3fae830ddd",
+  "exports": {
+    "./supply-check": {
+      "types": "./dist/supply-check/index.d.ts",
+      "default": "./dist/supply-check/index.js"
+    }
+  },
+  "bin": {
+    "supply-check": "dist/supply-check/ci/index.js"
+  },
+  "scripts": {
+    "build": "tsc6 -p .",
+    "typecheck": "tsc6 -p . --noEmit && tsc6 -p tests",
+    "test": "! git ls-files ':(glob)**/.gitattributes' | grep . || { echo 'remove the .gitattributes listed above: it changes the archive codeload.github.com serves' >&2; exit 1; }; out=$(mktemp -d \"${TMPDIR:-/tmp}/build.XXXXXX\") && tsc6 -p . --outDir \"$out\" && { diff -r dist/supply-check \"$out\"; s=$?; rm -r \"$out\"; test $s -eq 0; } && node --test 'tests/api/*.api.spec.ts'",
+    "test:e2e": "bash tests/e2e/supplycheck.e2e.sh",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "dependencies": {
+    "@honeyglass/utils": "github:honeyglass/utils#a6c8b941393ba0831b2909a54dae0a59d40f50bf",
+    "yaml": "2.9.1",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "prettier": "3.9.10",
+    "typescript": "npm:@typescript/typescript6@6.0.2"
+  }
+}
