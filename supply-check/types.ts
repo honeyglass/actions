@@ -55,7 +55,7 @@ export type FormOnly = { formOnly: true; fetch?: never; sleep?: never; token?: n
 
 /** GitHub's API as CI lends it: its fetch, the clock of the deadline, and the job's token. */
 export type GitHub = {
-  // asks GitHub's API whether a pinned commit of honeyglass/utils lies on its main branch
+  // asks GitHub's API whether a pinned commit lies on the main branch of its repository
   fetch: Fetch;
   // waits the given milliseconds, the clock of the deadline on GitHub's answer
   sleep: (ms: number) => Promise<void>;

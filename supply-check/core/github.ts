@@ -1,10 +1,10 @@
 /**
- * Whether GitHub's API places the pinned commit of honeyglass/utils on its main branch.
+ * Whether GitHub's API places each pinned commit on the main branch of the repository it pins.
  *
  * FETCH_MS: how long the check waits for GitHub's answer.
- * settledHits: the hits once GitHub answered, or why it left the pin unchecked.
+ * settledHits: the hits once GitHub answered, or why it left a pin unchecked.
  *
- * GitHub serves a fork's commit under the URL of honeyglass/utils too, so only main's history
+ * GitHub serves a fork's commit under the URL of the repository too, so only main's history
  * proves a pin. Every answer but "on main" or "unknown commit" refuses, so none passes unasked.
  *
  * @example return settledHits([...removed, ...hits.flat()], github);
@@ -14,7 +14,8 @@ import type { Refusal } from '@honeyglass/utils/ts';
 import type { FormOnly, GitHub, SupplyHit } from '../types.ts';
 import { AnswerSchema, CompareSchema } from './supply.schema.ts';
 import type { Answer } from './supply.schema.ts';
-import type { Found } from './types.ts';
+import { offMain } from './reasons.ts';
+import type { Found, Pin } from './types.ts';
 
 /** Thirty seconds for GitHub's answer, so an API that hangs refuses the check instead of holding it. */
 export const FETCH_MS = 30_000;
@@ -22,55 +23,86 @@ export const FETCH_MS = 30_000;
 const STEP = 'supply check';
 
 /**
- * The hits once GitHub placed the pinned commit on main or not: its fields drop when main holds it.
+ * The hits once GitHub placed each pinned commit on main or not: a field drops when main holds
+ * every commit it names.
  *
- * One check passes one commit, so two are refused before GitHub is asked, and the requests stay
- * one per check. GitHub's refusal stands only where no other hit does, so those come first.
- * With formOnly the pin's fields drop unasked, as its form passed; a fetch beside it is asked.
+ * A check passes one commit per repository, so a repository pinned at two is refused before
+ * GitHub is asked about it, and the requests stay one per repository. GitHub's refusal stands
+ * only where no other hit does, so those come first. With formOnly the pins' fields drop
+ * unasked, as their form passed; a fetch beside it is asked.
  */
 export const settledHits = async (
   found: Found[],
   github: GitHub | FormOnly,
 ): Promise<SupplyHit[] | Refusal> => {
-  const pins = [...new Set(found.flatMap(({ pin }) => (pin === undefined ? [] : [pin])))];
-  const others = found.filter(({ pin }) => pin === undefined).map(withoutPin);
-  if (pins.length > 1) return found.map(hit => pinsHit(hit, pins));
-  const [sha] = pins;
-  if (sha === undefined || ('formOnly' in github && github.fetch === undefined)) return others;
-  const answer = await mainAnswer(sha, github);
-  if (isRefusal(answer)) return others.length > 0 ? others : answer;
-  return answer ? others : found.map(withoutPin);
+  const commits = commitsOf(found.flatMap(({ pins = [] }) => pins));
+  const verdicts = new Map(
+    await Promise.all(
+      [...commits].map(
+        async ([repository, shas]) =>
+          [repository, await verdictOf(repository, shas, github)] as const,
+      ),
+    ),
+  );
+  const hits = found.flatMap(hit => settled(hit, verdicts));
+  const [unchecked] = [...verdicts.values()].filter(isRefusal);
+  return hits.length === 0 && unchecked !== undefined ? unchecked : hits;
 };
 
-// A field that pins one of several commits, refused by them all, as one lockfile pins one.
-const pinsHit = (hit: Found, pins: string[]) =>
-  hit.pin === undefined
-    ? withoutPin(hit)
-    : {
-        ...withoutPin(hit),
-        reason: `one of ${pins.length} commits of honeyglass/utils pinned at once (${pins.join(', ')}), and a check passes one`,
-      };
+// What a repository's pins come to: true when they pass, the reason they fail, or GitHub's
+// refusal.
+type Verdict = true | string | Refusal;
 
-const withoutPin = ({ file, field, value, reason }: Found): SupplyHit => ({
-  file,
-  field,
-  value,
-  reason,
-});
+// Each repository's distinct commits; a set looks each up once.
+const commitsOf = (pins: Pin[]) => {
+  const commits = new Map<string, Set<string>>();
+  for (const { repository, sha } of pins)
+    commits.set(repository, (commits.get(repository) ?? new Set<string>()).add(sha));
+  return commits;
+};
+
+// A repository pinned at several commits, refused by them all, as one lockfile pins one; else
+// GitHub's word on its one commit.
+const verdictOf = async (
+  repository: string,
+  shas: ReadonlySet<string>,
+  github: GitHub | FormOnly,
+): Promise<Verdict> => {
+  // the count alone, as every field it refuses shows its own commit, so a reason stays short
+  if (shas.size > 1)
+    return `one of ${shas.size} commits of ${repository} pinned at once, and a check passes one per repository`;
+  const [sha = ''] = shas;
+  if ('formOnly' in github && github.fetch === undefined) return true;
+  const answer = await mainAnswer(repository, sha, github);
+  if (isRefusal(answer)) return answer;
+  return answer ? true : offMain(repository);
+};
+
+// A field as the verdicts of its repositories leave it: a hit with the first reason, if
+// any, and gone once each passed or went unchecked.
+const settled = ({ file, field, value, reason, pins }: Found, verdicts: Map<string, Verdict>) => {
+  if (pins === undefined) return [{ file, field, value, reason }];
+  const failed = pins
+    .map(({ repository }) => verdicts.get(repository))
+    .find(verdict => typeof verdict === 'string');
+  return failed === undefined ? [] : [{ file, field, value, reason: failed }];
+};
 
 /**
- * Whether GitHub's compare of main with `sha` says main holds it, or why GitHub did not say.
+ * Whether GitHub's compare of the repository's main with `sha` says main holds it, or why
+ * GitHub did not say.
  *
- * GitHub serves a fork's commit under the URL of honeyglass/utils too, so owner and sha prove
+ * GitHub serves a fork's commit under the repository's URL too, so owner and sha prove
  * nothing; only main's history does: "identical" for its head, "behind" for a commit below it.
  * A commit GitHub does not know answers 404. Every other answer refuses, so none passes unasked,
  * and an answer past FETCH_MS refuses too, its request aborted where the fetch honors the signal.
  */
 const mainAnswer = async (
+  repository: string,
   sha: string,
   { fetch, sleep, token }: GitHub,
 ): Promise<boolean | Refusal> => {
-  const url = `${COMPARE}${sha}`;
+  const url = `${API}${repository}/compare/main...${sha}`;
   const stop = new AbortController();
   const asked = { headers: headersOf(token), signal: stop.signal };
   const { data, error } = await $try(() => Promise.race([fetch(url, asked), lateAfter(sleep)]));
@@ -183,6 +215,7 @@ const resetOf = (headers: Record<string, string>) => {
 
 // What lateAfter answers once the deadline passed, which no fetch answers.
 const LATE = Symbol('late');
-// GitHub's compare of main with a commit, and the statuses by which main holds it.
-const COMPARE = 'https://api.github.com/repos/honeyglass/utils/compare/main...';
+// GitHub's API of a repository, whose compare of main with a commit the check asks, and the
+// statuses by which main holds it. The repository comes from the grammar's allow-list alone.
+const API = 'https://api.github.com/repos/';
 const ON_MAIN = ['identical', 'behind'];

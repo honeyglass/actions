@@ -10,9 +10,11 @@
  * Functions over the texts of the files a commit stages; the caller reads them from git, answers
  * what a path of the tree is and, in CI alone, lends its network. It is an allow-list: a dependency
  * value passes only as a registry version or range, an npm: alias, workspace:, catalog:, a link: to
- * a folder the repository tracks, or a full commit of github:honeyglass/utils on its main branch,
- * and a pnpm setting only as lean-code's template sets it, widened by the exceptions the person
- * approved for the repository. Every other form fails, so one pnpm adds later is refused.
+ * a folder the repository tracks, or a full commit of github:honeyglass/utils or
+ * github:honeyglass/adx on the main branch of that repository, one commit per repository,
+ * and a pnpm setting only as lean-code's template sets it, widened by the exceptions the
+ * person approved for the repository. Every other form fails, so one pnpm adds later is
+ * refused.
  *
  * @example const hits = await supplyHits({ staged, deleted: [], kindOf, repository, formOnly: true })
  */
@@ -50,10 +52,10 @@ export const isAttributesFile = (path) => nameOf(path) === '.gitattributes';
 /**
  * The forms the staged dependency files and symlinks hold that the check refuses.
  *
- * Given GitHub's API, a pinned commit of honeyglass/utils passes only on GitHub's word, so an
- * answer that says nothing, such as at the rate limit or without a network, refuses the check
- * where no other hit stands. With formOnly the pin passes on its form alone, and CI asks after the
- * push.
+ * Given GitHub's API, a pinned commit of an allowed repository passes only on GitHub's
+ * word, so an answer that says nothing, such as at the rate limit or without a network,
+ * refuses the check where no other hit stands. With formOnly the pin passes on its form
+ * alone, and CI asks after the push.
  *
  * @param supply - the staged and deleted files, what a path of the tree is, the repository, and GitHub or formOnly
  * @returns each hit, none when the files may be committed; or why GitHub left a pinned commit unchecked

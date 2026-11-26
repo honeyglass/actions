@@ -1,0 +1,11 @@
+{
+  "name": "adx-install-probe",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@honeyglass/adx": "github:honeyglass/adx#2a7536ced9d17f63e8318d43ab542f86f1a6dd99",
+    "@honeyglass/utils": "github:honeyglass/utils#a6c8b941393ba0831b2909a54dae0a59d40f50bf",
+    "zod": "4.6.5"
+  }
+}

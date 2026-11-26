@@ -6,17 +6,17 @@
  * Each path is one the commit stages, as git names it from the top level; one the index, or the
  * tree the caller names, does not list counts as deleted, and a folder stands for every file
  * below it. A staged .gitattributes has git asked about every tracked supply file, since a new
- * line there may convert one the commit leaves as it is. A pinned commit of honeyglass/utils
- * passes on its form alone, and CI asks GitHub after the push. Each answer is one JSON line on
- * stdout, a SupplyHit or the Refusal, and a throw is a refusal of kind bug, so exit 1 without a
- * line comes only from a Node that failed before the program ran.
+ * line there may convert one the commit leaves as it is. A pinned commit of an allowed
+ * repository passes on its form alone, and CI asks GitHub after the push. Each answer is one
+ * JSON line on stdout, a SupplyHit or the Refusal, and a throw is a refusal of kind bug, so
+ * exit 1 without a line comes only from a Node that failed before the program ran.
  *
  * @example process.exitCode = await stagedMain(['honeyglass/blog', '--', 'package.json']);
  */
 import { $try, causeText, isRefusal } from '@honeyglass/utils/ts';
 import { conversionHits, isAttributesFile, isSupplyFile, supplyHits } from "../index.js";
 import { attributesOf, entriesIn, indexedFiles, topOf } from "./git.js";
-import { kindIn, LINK_MODE } from "./kind.js";
+import { kindsIn, LINK_MODE } from "./kind.js";
 import { STEP } from "./constants.js";
 import { usageRefusal } from "./usage.js";
 // The exit code of a refusal, apart from 1 for hits, so a caller tells the two apart.
@@ -97,7 +97,7 @@ const stagedHits = async (top, request) => {
     const converted = await conversionsIn(top, tree, converting);
     if (isRefusal(converted))
         return converted;
-    const looked = { tree, top, asked: new Map(), failed: [] };
+    const looked = { tree, top, kinds: undefined, failed: [] };
     const hits = await supplyHits({
         staged: files.map(({ path, mode, bytes }) => ({ path, mode, text: bytes.toString() })),
         deleted: paths.filter(path => present.has(path) === false),
@@ -128,23 +128,20 @@ const conversionsIn = async (top, tree, entries) => {
     const listing = await attributesOf(top, { tree, paths });
     return isRefusal(listing) ? listing : conversionHits(listing);
 };
-// What the index or the tree holds at a path, asked of git once per run; a failure waits in
-// `failed`, as kindOf answers a kind and no refusal.
-const kindAt = (looked, path) => {
-    const asked = looked.asked.get(path);
-    if (asked !== undefined)
-        return asked;
-    const kind = lookedUpKind(looked, path);
-    looked.asked.set(path, kind);
-    return kind;
+// What the index or the tree holds at a path, answered from one listing of it per run, which
+// git is asked for at the first path; a failure waits in `failed`, as kindOf answers a kind and
+// no refusal.
+const kindAt = async (looked, path) => {
+    looked.kinds ??= listedKinds(looked);
+    return (await looked.kinds)?.(path);
 };
-const lookedUpKind = async ({ top, tree, failed }, path) => {
-    const listed = await entriesIn(top, { tree, paths: [path] });
+const listedKinds = async ({ top, tree, failed }) => {
+    const listed = await entriesIn(top, { tree, paths: [] });
     if (isRefusal(listed)) {
         failed.push(listed);
         return undefined;
     }
-    return kindIn(listed, path);
+    return kindsIn(listed);
 };
 // A refusal as JSON, its cause as text, since an error object writes as {}.
 const withCauseText = (r) => ({

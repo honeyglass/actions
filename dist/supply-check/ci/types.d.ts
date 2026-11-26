@@ -4,7 +4,7 @@
  * Indexed: a supply file with its bytes as the index or a tree holds them.
  * Listed: the paths git lists, from the index or a tree.
  * Request: what the staged command checks: the paths, where git reads them, and the repository.
- * Looked: the kinds the staged command asked git for, each once, and the failures they met.
+ * Looked: the one listing the staged command answers each kind from, and the failure it met.
  *
  * @example const files: Indexed[] = [];
  */
@@ -23,6 +23,6 @@ export type Request = Listed & {
 export type Looked = {
     top: string;
     tree: string | undefined;
-    asked: Map<string, Promise<PathKind | undefined>>;
+    kinds: Promise<((path: string) => PathKind | undefined) | undefined> | undefined;
     failed: Refusal[];
 };

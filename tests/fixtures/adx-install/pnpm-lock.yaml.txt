@@ -1,0 +1,68 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .:
+    dependencies:
+      '@honeyglass/adx':
+        specifier: github:honeyglass/adx#2a7536ced9d17f63e8318d43ab542f86f1a6dd99
+        version: https://codeload.github.com/honeyglass/adx/tar.gz/2a7536ced9d17f63e8318d43ab542f86f1a6dd99(@honeyglass/utils@https://codeload.github.com/honeyglass/utils/tar.gz/a6c8b941393ba0831b2909a54dae0a59d40f50bf)(zod@4.6.5)
+      '@honeyglass/utils':
+        specifier: github:honeyglass/utils#a6c8b941393ba0831b2909a54dae0a59d40f50bf
+        version: https://codeload.github.com/honeyglass/utils/tar.gz/a6c8b941393ba0831b2909a54dae0a59d40f50bf
+      zod:
+        specifier: 4.6.5
+        version: 4.6.5
+
+packages:
+
+  '@honeyglass/adx@https://codeload.github.com/honeyglass/adx/tar.gz/2a7536ced9d17f63e8318d43ab542f86f1a6dd99':
+    resolution: {gitHosted: true, integrity: sha512-ToFbx+lqn8tH81fRQGQIhPyAE4f3xaqTwKBocCuiToygRTRV3Cfy82zXsPT1Z1SHIBsSgyAAHvyxTxkfyTnmSw==, tarball: https://codeload.github.com/honeyglass/adx/tar.gz/2a7536ced9d17f63e8318d43ab542f86f1a6dd99}
+    version: 0.0.0
+    engines: {node: '>=24'}
+    hasBin: true
+    peerDependencies:
+      '@honeyglass/utils': github:honeyglass/utils#a6c8b941393ba0831b2909a54dae0a59d40f50bf
+      zod: ^4.6.5
+
+  '@honeyglass/utils@https://codeload.github.com/honeyglass/utils/tar.gz/a6c8b941393ba0831b2909a54dae0a59d40f50bf':
+    resolution: {gitHosted: true, integrity: sha512-/l6IWrgSiHk+gYqT6zz83Oa3LxrH/uK8Ki1y1So52DwBnV85PETiNBpAqZzzLI6ldjDLv2iKqNsdPlQd8k6YyQ==, tarball: https://codeload.github.com/honeyglass/utils/tar.gz/a6c8b941393ba0831b2909a54dae0a59d40f50bf}
+    version: 0.0.0
+
+  rxjs@7.8.2:
+    resolution: {integrity: sha512-dhKf903U/PQZY6boNNtAGdWbG85WAbjT/1xYoZIC7FAY0yWapOBQVsVrDl58W86//e1VpMNBtRV4MaXfdMySFA==}
+
+  tslib@2.9.1:
+    resolution: {integrity: sha512-a4Ux9VKuIMHsOS7ENbEq6hK2ZGYIT27Rtl0E4eD9KqwxhKiQeMZE/9xb3IdYwWaSOyIBQLExhQgXDTYoiCxnWA==}
+
+  unbash@6.0.5:
+    resolution: {integrity: sha512-5P8o+nYRueKpHxmemofYqZRZCSWAi+Tqy31MQS8l/sT54Z+Axn55N9CnWPo19BxxJD4wYYf6RqlcURhWkrFXew==}
+    engines: {node: '>=14'}
+
+  zod@4.6.5:
+    resolution: {integrity: sha512-v5l/aFXZQeai4awLbOpSoHecE9UiMrnfx75tEXLjNonXVARxQ5mOeipTjROUchszUNCqnE+hqAMujRsRHsut2Q==}
+
+snapshots:
+
+  '@honeyglass/adx@https://codeload.github.com/honeyglass/adx/tar.gz/2a7536ced9d17f63e8318d43ab542f86f1a6dd99(@honeyglass/utils@https://codeload.github.com/honeyglass/utils/tar.gz/a6c8b941393ba0831b2909a54dae0a59d40f50bf)(zod@4.6.5)':
+    dependencies:
+      '@honeyglass/utils': https://codeload.github.com/honeyglass/utils/tar.gz/a6c8b941393ba0831b2909a54dae0a59d40f50bf
+      rxjs: 7.8.2
+      unbash: 6.0.5
+      zod: 4.6.5
+
+  '@honeyglass/utils@https://codeload.github.com/honeyglass/utils/tar.gz/a6c8b941393ba0831b2909a54dae0a59d40f50bf': {}
+
+  rxjs@7.8.2:
+    dependencies:
+      tslib: 2.9.1
+
+  tslib@2.9.1: {}
+
+  unbash@6.0.5: {}
+
+  zod@4.6.5: {}

@@ -3,10 +3,16 @@
 The supply check keeps local links and unsafe pnpm settings out of a repository. It is an
 allow-list: a dependency value passes only as a registry version or range, an npm: alias,
 `workspace:`, `catalog:`, a `link:` to a folder the repository tracks, or a full commit of
-`github:honeyglass/utils` that GitHub's API places on its main branch. A pnpm setting passes only
-as lean-code's template sets it, widened by the exceptions the person approved for a repository,
-and every `pnpm-workspace.yaml` holds each setting of the template, `ignorePnpmfile: true` among
-them. A pnpmfile, a `.npmrc` key, a dependency file tracked as a symlink and a tracked path in a
+`github:honeyglass/utils` or `github:honeyglass/adx` that GitHub's API places on the main
+branch of that repository, one commit per repository. In `pnpm-lock.yaml` a peer suffix names
+such a commit's tarball only where the value itself is one, on the first level of an importer's
+version or a snapshot key. A package's own peer range there passes only as registry ranges and
+dist-tags, an npm: alias to a registry range or such a commit, the name of an importer's, a
+snapshot's or a peer dependency only as an npm package name whose parts start with no dot, and
+a package's integrity only as a sha512. A pnpm setting passes only as lean-code's template sets
+it, widened by the exceptions the person approved for a repository, and every
+`pnpm-workspace.yaml` holds each setting of the template, `ignorePnpmfile: true` among them. A
+pnpmfile, a `.npmrc` key, a dependency file tracked as a symlink and a tracked path in a
 `node_modules` folder never pass.
 
 ## As an action

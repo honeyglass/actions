@@ -40,8 +40,9 @@ runs:
     # The inputs reach the script as variables, never as text inside it, so no value runs as code.
     # The mode is matched exactly first; any other value fails before the program runs. Only check
     # gets TOKEN, the job's token; give the job contents: read. check asks GitHub's API whether a
-    # pinned commit of honeyglass/utils lies on its main branch, and GitHub allows 60 requests an
-    # hour to an address without a token. check takes the repository as its second argument.
+    # pinned commit of honeyglass/utils or honeyglass/adx lies on the main branch of its
+    # repository, and GitHub allows 60 requests an hour to an address without a token. check
+    # takes the repository as its second argument.
     - shell: bash
       env:
         MODE: ${{ inputs.mode }}

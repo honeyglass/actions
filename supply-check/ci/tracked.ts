@@ -14,7 +14,7 @@ import type { Refusal } from '@honeyglass/utils/ts';
 import { isSupplyFile, supplyHits } from '../index.ts';
 import type { Fetch, SupplyHit } from '../index.ts';
 import { entriesIn, indexedFiles } from './git.ts';
-import { kindIn, LINK_MODE } from './kind.ts';
+import { kindsIn, LINK_MODE } from './kind.ts';
 import type { Indexed } from './types.ts';
 
 // The root workspace pnpm reads its settings from; the check refuses a tree without it.
@@ -38,10 +38,11 @@ export const trackedHits = async (
   const read = entries.filter(({ path, mode }) => isSupplyFile(path, mode));
   const files = await indexedFiles(top, read);
   if (isRefusal(files)) return files;
+  const kindOf = kindsIn(entries);
   const hits = await supplyHits({
     staged: files.map(({ path, mode, bytes }) => ({ path, mode, text: bytes.toString() })),
     deleted: entries.some(({ path }) => path === WORKSPACE) ? [] : [WORKSPACE],
-    kindOf: async path => kindIn(entries, path),
+    kindOf: async path => kindOf(path),
     repository,
     fetch: nodeFetch,
     sleep: unrefSleep,

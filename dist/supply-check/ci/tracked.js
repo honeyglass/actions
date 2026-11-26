@@ -12,7 +12,7 @@ import { setTimeout as wait } from 'node:timers/promises';
 import { $try, anyError, isRefusal } from '@honeyglass/utils/ts';
 import { isSupplyFile, supplyHits } from "../index.js";
 import { entriesIn, indexedFiles } from "./git.js";
-import { kindIn, LINK_MODE } from "./kind.js";
+import { kindsIn, LINK_MODE } from "./kind.js";
 // The root workspace pnpm reads its settings from; the check refuses a tree without it.
 const WORKSPACE = 'pnpm-workspace.yaml';
 const DRIFT = 'the worktree, which pnpm reads, holds other bytes here than the index, as a .gitattributes conversion or a local change writes them';
@@ -30,10 +30,11 @@ export const trackedHits = async (top, repository, token) => {
     const files = await indexedFiles(top, read);
     if (isRefusal(files))
         return files;
+    const kindOf = kindsIn(entries);
     const hits = await supplyHits({
         staged: files.map(({ path, mode, bytes }) => ({ path, mode, text: bytes.toString() })),
         deleted: entries.some(({ path }) => path === WORKSPACE) ? [] : [WORKSPACE],
-        kindOf: async (path) => kindIn(entries, path),
+        kindOf: async (path) => kindOf(path),
         repository,
         fetch: nodeFetch,
         sleep: unrefSleep,

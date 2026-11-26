@@ -7,6 +7,7 @@
  * Run with `pnpm test`, which runs the committed build in 'dist/' through the package's own name.
  */
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { describe, test } from 'node:test';
 import { isRefusal } from '@honeyglass/utils/ts';
 import type { Refusal } from '@honeyglass/utils/ts';
@@ -17,11 +18,14 @@ import {
   hitLine,
   isAttributesFile,
   isSupplyFile,
+  kindsIn,
   supplyHits,
 } from '@honeyglass/actions/supply-check';
 
 const PNPM =
   'pnpm@12.9.0+sha512.8f64efa0b792986ca98ae568791bcd7722807e274c4f0c1d9853c62116495c584119db98762a2a5343b1684d361b9ae26fdd16d551666d7635346d3fae830ddd';
+// A package's sha512 stand-in of the length pnpm writes, as the check reads a hash by its form.
+const sri = (letter: string) => `sha512-${letter.repeat(86)}==`;
 // lean-code's templates/repo/pnpm-workspace.yaml as that repository holds it, with the
 // ignorePnpmfile it takes on in A2
 const TEMPLATE_WORKSPACE = `# pnpm reads its settings from this file, not from package.json. Every rule here is
@@ -94,12 +98,12 @@ importers:
 packages:
 
   '@pnpm/exe.darwin-arm64@12.9.0':
-    resolution: {integrity: sha512-AAAA==}
+    resolution: {integrity: ${sri('A')}}
     cpu: [arm64]
     os: [darwin]
 
   pnpm@12.9.0:
-    resolution: {integrity: sha512-BBBB==}
+    resolution: {integrity: ${sri('B')}}
     engines: {node: '>=18.*'}
     hasBin: true
 
@@ -143,11 +147,11 @@ importers:
 packages:
 
   '@typescript/typescript6@6.0.2':
-    resolution: {integrity: sha512-CCCC==}
+    resolution: {integrity: ${sri('C')}}
     hasBin: true
 
   eslint-plugin-zod@5.0.0:
-    resolution: {integrity: sha512-DDDD==}
+    resolution: {integrity: ${sri('D')}}
     engines: {node: ^20.19 || ^22.12 || >=24}
     peerDependencies:
       eslint: ^9 || ^10
@@ -157,7 +161,7 @@ packages:
         optional: true
 
   typescript@6.0.3:
-    resolution: {integrity: sha512-EEEE==}
+    resolution: {integrity: ${sri('E')}}
     engines: {node: '>=14.17'}
     hasBin: true
 
@@ -199,18 +203,18 @@ importers:
 packages:
 
   '@tailwindcss/oxide-wasm32-wasi@4.3.3':
-    resolution: {integrity: sha512-FFFF==}
+    resolution: {integrity: ${sri('F')}}
     engines: {node: '>=14.0.0'}
     cpu: [wasm32]
     bundledDependencies:
       - '@napi-rs/wasm-runtime'
 
   glob@10.5.0:
-    resolution: {integrity: sha512-GGGG==}
+    resolution: {integrity: ${sri('G')}}
     deprecated: Old versions of glob are not supported.
 
   sass-embedded-linux-x64@1.93.2:
-    resolution: {integrity: sha512-HHHH==}
+    resolution: {integrity: ${sri('H')}}
     os: [linux]
     libc: glibc
 `;
@@ -271,18 +275,50 @@ const AHEAD = 'a'.repeat(40);
 const UNKNOWN = 'e'.repeat(40);
 const CODELOAD = 'https://codeload.github.com/honeyglass/utils/tar.gz/';
 const COMPARE = 'https://api.github.com/repos/honeyglass/utils/compare/main...';
+// Commits of honeyglass/adx: main's head, and a fork's that GitHub serves under its URL too.
+// adx knows none of utils' commits, so HEAD pinned as adx is a commit GitHub does not know
+// there.
+const ADX_HEAD = '3'.repeat(40);
+const ADX_FORK = 'c'.repeat(40);
+const ADX_CODELOAD = 'https://codeload.github.com/honeyglass/adx/tar.gz/';
+const ADX_COMPARE = 'https://api.github.com/repos/honeyglass/adx/compare/main...';
+const SOMEONE_CODELOAD = 'https://codeload.github.com/someone/utils/tar.gz/';
+// The reasons whose repository a row checks: the one the value is about, or every allowed one.
+const OFF_ADX_MAIN =
+  "a commit GitHub's API does not place on the main branch of honeyglass/adx, such as a fork's, which GitHub serves under the repository's URL too";
+const OFF_UTILS_MAIN =
+  "a commit GitHub's API does not place on the main branch of honeyglass/utils, such as a fork's, which GitHub serves under the repository's URL too";
+const OTHER_ADX_COMMIT =
+  'a version and a specifier that do not name the same commit of github:honeyglass/adx';
+const UNKNOWN_FORM =
+  'neither a registry version or range, an npm: alias, workspace:, catalog:, a link: inside the repository nor a full commit of github:honeyglass/utils or github:honeyglass/adx';
+const UNKNOWN_PEER =
+  'neither registry ranges and dist-tags, an npm: alias to a registry range nor a full commit of github:honeyglass/utils or github:honeyglass/adx';
+const UNKNOWN_NAME = 'no npm package name, of which pnpm makes a folder below node_modules';
+const WEAK_INTEGRITY = 'no sha512 integrity, by which pnpm checks the bytes it fetched';
+// a lockfile of one registry package whose own peer range on `name` is `range`
+const peerLockfile = (range: string, name = 'react') =>
+  `lockfileVersion: '9.0'\n\npackages:\n\n  foo@1.0.0:\n    resolution: {integrity: ${sri('A')}}\n    peerDependencies:\n      '${name}': '${range}'\n`;
+// a URL whose user info a hit masks, in its value and in its field's path
+const SECRET_URL = 'https://me:secretpw@evil.example/x';
+const MASKED_URL = 'https://***@evil.example/x';
+// a lockfile whose root names its one dependency `name`
+const namedLockfile = (name: string) =>
+  `lockfileVersion: '9.0'\nimporters:\n  .:\n    dependencies:\n      '${name}':\n        specifier: 1.0.0\n        version: 1.0.0\n`;
 // GitHub's compare of main with each commit, as its API answers without a token: main's head and
 // an unknown commit as the person measured them on 2026-11-10, the others as GitHub documents them.
 const COMPARED: Record<string, string> = {
-  [HEAD]: '{"status":"identical","ahead_by":0,"behind_by":0}',
-  [BEHIND]: '{"status":"behind","ahead_by":0,"behind_by":3}',
-  [FORK]: '{"status":"diverged","ahead_by":1,"behind_by":2}',
-  [AHEAD]: '{"status":"ahead","ahead_by":1,"behind_by":0}',
+  [`${COMPARE}${HEAD}`]: '{"status":"identical","ahead_by":0,"behind_by":0}',
+  [`${COMPARE}${BEHIND}`]: '{"status":"behind","ahead_by":0,"behind_by":3}',
+  [`${COMPARE}${FORK}`]: '{"status":"diverged","ahead_by":1,"behind_by":2}',
+  [`${COMPARE}${AHEAD}`]: '{"status":"ahead","ahead_by":1,"behind_by":0}',
+  [`${ADX_COMPARE}${ADX_HEAD}`]: '{"status":"identical","ahead_by":0,"behind_by":0}',
+  [`${ADX_COMPARE}${ADX_FORK}`]: '{"status":"diverged","ahead_by":1,"behind_by":2}',
 };
 // a wait that never ends, so every fetch answers before the deadline
 const idle = () => new Promise<void>(() => {});
 const github: Fetch = async url => {
-  const text = COMPARED[url.slice(COMPARE.length)];
+  const text = COMPARED[url];
   return text === undefined
     ? { status: 404, headers: {}, text: '{"message":"Not Found","status":"404"}' }
     : { status: 200, headers: {}, text };
@@ -302,7 +338,7 @@ importers:
 packages:
 
   '@honeyglass/utils@${CODELOAD}${sha}':
-    resolution: {gitHosted: true, integrity: sha512-IIII==, tarball: ${CODELOAD}${sha}}
+    resolution: {gitHosted: true, integrity: ${sri('I')}, tarball: ${CODELOAD}${sha}}
     version: 0.0.0
 
 snapshots:
@@ -316,6 +352,105 @@ const pinnedFields = (sha: string, url = `${CODELOAD}${sha}`) => [
   `packages.${JSON.stringify(`@honeyglass/utils@${url}`)}`,
   `packages.${JSON.stringify(`@honeyglass/utils@${url}`)}.resolution.tarball`,
   `snapshots.${JSON.stringify(`@honeyglass/utils@${url}`)}`,
+];
+// The peer suffix adx's key and version carry for its peers, utils at `utils` and zod 4.6.5.
+const adxPeers = (utils: string) => `(@honeyglass/utils@${CODELOAD}${utils})(zod@4.6.5)`;
+// The lockfile recorded in tests/fixtures/adx-install/, with stand-ins for its commits and
+// integrity hashes and without its settings, so a row can vary each sha: its root depends on
+// honeyglass/adx at `sha` and on its peers honeyglass/utils at `utils` and zod.
+const adxLockfile = (sha: string, utils = HEAD) => `lockfileVersion: '9.0'
+
+importers:
+
+  .:
+    dependencies:
+      '@honeyglass/adx':
+        specifier: github:honeyglass/adx#${sha}
+        version: ${ADX_CODELOAD}${sha}${adxPeers(utils)}
+      '@honeyglass/utils':
+        specifier: github:honeyglass/utils#${utils}
+        version: ${CODELOAD}${utils}
+      zod:
+        specifier: 4.6.5
+        version: 4.6.5
+
+packages:
+
+  '@honeyglass/adx@${ADX_CODELOAD}${sha}':
+    resolution: {gitHosted: true, integrity: ${sri('J')}, tarball: ${ADX_CODELOAD}${sha}}
+    version: 0.0.0
+    engines: {node: '>=24'}
+    hasBin: true
+    peerDependencies:
+      '@honeyglass/utils': github:honeyglass/utils#${utils}
+      zod: ^4.6.5
+
+  '@honeyglass/utils@${CODELOAD}${utils}':
+    resolution: {gitHosted: true, integrity: ${sri('I')}, tarball: ${CODELOAD}${utils}}
+    version: 0.0.0
+
+  rxjs@7.8.2:
+    resolution: {integrity: ${sri('L')}}
+
+  tslib@2.9.1:
+    resolution: {integrity: ${sri('M')}}
+
+  unbash@6.0.5:
+    resolution: {integrity: ${sri('N')}}
+    engines: {node: '>=14'}
+
+  zod@4.6.5:
+    resolution: {integrity: ${sri('K')}}
+
+snapshots:
+
+  '@honeyglass/adx@${ADX_CODELOAD}${sha}${adxPeers(utils)}':
+    dependencies:
+      '@honeyglass/utils': ${CODELOAD}${utils}
+      rxjs: 7.8.2
+      unbash: 6.0.5
+      zod: 4.6.5
+
+  '@honeyglass/utils@${CODELOAD}${utils}': {}
+
+  rxjs@7.8.2:
+    dependencies:
+      tslib: 2.9.1
+
+  tslib@2.9.1: {}
+
+  unbash@6.0.5: {}
+
+  zod@4.6.5: {}
+`;
+// a package.json that names adx at `sha` and its peers, utils at `utils` and zod, directly
+const adxManifest = (sha: string, utils = HEAD) =>
+  JSON.stringify({
+    dependencies: {
+      '@honeyglass/adx': `github:honeyglass/adx#${sha}`,
+      '@honeyglass/utils': `github:honeyglass/utils#${utils}`,
+      zod: '4.6.5',
+    },
+  });
+// the fields of adxLockfile that name adx's commit, in the order the check reports them; its
+// version and snapshot key name utils' commit too, in their peer suffix
+const adxFields = (sha: string, utils = HEAD) => [
+  'importers.".".dependencies.@honeyglass/adx.specifier',
+  'importers.".".dependencies.@honeyglass/adx.version',
+  `packages.${JSON.stringify(`@honeyglass/adx@${ADX_CODELOAD}${sha}`)}`,
+  `packages.${JSON.stringify(`@honeyglass/adx@${ADX_CODELOAD}${sha}`)}.resolution.tarball`,
+  `snapshots.${JSON.stringify(`@honeyglass/adx@${ADX_CODELOAD}${sha}${adxPeers(utils)}`)}`,
+];
+// the fields of adxLockfile that name utils' commit, adx's peer suffixes and peer range among
+// them, in order
+const peerFields = (sha: string, utils: string) => [
+  adxFields(sha, utils)[1],
+  ...pinnedFields(utils).slice(0, 2),
+  `${adxFields(sha, utils)[2]}.peerDependencies.@honeyglass/utils`,
+  ...pinnedFields(utils).slice(2, 4),
+  adxFields(sha, utils)[4],
+  pinnedFields(utils)[4],
+  `${adxFields(sha, utils)[4]}.dependencies.@honeyglass/utils`,
 ];
 
 const hitsOf = ({
@@ -442,6 +577,37 @@ const passing: Omit<Row, 'hits'>[] = [
   {
     what: "a lockfile that pins honeyglass/utils at main's head",
     files: { 'pnpm-lock.yaml': pinnedLockfile(HEAD) },
+  },
+  {
+    what: 'a dependency on a commit that lies on the main branch of honeyglass/adx',
+    files: { 'package.json': manifestWith(`github:honeyglass/adx#${ADX_HEAD}`) },
+  },
+  {
+    what: "honeyglass/adx at main's head with its peers on honeyglass/utils and zod",
+    files: { 'package.json': adxManifest(ADX_HEAD), 'pnpm-lock.yaml': adxLockfile(ADX_HEAD) },
+  },
+  {
+    what: "a package's own peer ranges as the lockfile holds them, a dist-tag and npm: aliases among them",
+    files: {
+      'pnpm-lock.yaml': `lockfileVersion: '9.0'\n\npackages:\n\n  foo@1.0.0:\n    resolution: {integrity: ${sri('A')}}\n    peerDependencies:\n${[
+        '>=3.0.0 || >=4.0.0 || insiders',
+        '^16||^17||^18||^19',
+        '>= 5.0.0-beta.1 < 6',
+        '*',
+        'x',
+        `github:honeyglass/utils#${HEAD}`,
+        'npm:typescript@>=7.1.0-dev.20261009.1 || >=7.1.0-beta <7.1.0-dev',
+        'npm:@scope/pkg@^1.2.3',
+      ]
+        .map((range, i) => `      p${i}: '${range}'\n`)
+        .join('')}`,
+    },
+  },
+  {
+    what: "a catalog's pinned version as its tarball alone",
+    files: {
+      'pnpm-lock.yaml': `lockfileVersion: '9.0'\n\ncatalogs:\n  default:\n    '@honeyglass/utils':\n      specifier: github:honeyglass/utils#${HEAD}\n      version: ${CODELOAD}${HEAD}\n`,
+    },
   },
   {
     what: "blog's approved builds and hoisted name, for blog alone",
@@ -720,8 +886,8 @@ const refused: Row[] = [
     what: 'a tarball resolution',
     files: {
       'pnpm-lock.yaml': BLOG_LOCKFILE.replace(
-        '{integrity: sha512-GGGG==}',
-        '{integrity: sha512-GGGG==, tarball: https://example.com/glob-10.5.0.tgz}',
+        `{integrity: ${sri('G')}}`,
+        `{integrity: ${sri('G')}, tarball: https://example.com/glob-10.5.0.tgz}`,
       ),
     },
     hits: [{ field: 'packages."glob@10.5.0".resolution.tarball' }],
@@ -803,7 +969,7 @@ const refused: Row[] = [
         .replaceAll('github:honeyglass/', 'github:someone/')
         .replaceAll('github.com/honeyglass/', 'github.com/someone/'),
     },
-    // its version too, which only the key of honeyglass/utils may hold
+    // its version too, which only the key of an allowed repository may hold
     hits: pinnedFields(HEAD, `https://codeload.github.com/someone/utils/tar.gz/${HEAD}`)
       .toSpliced(
         4,
@@ -811,6 +977,188 @@ const refused: Row[] = [
         `packages."@honeyglass/utils@https://codeload.github.com/someone/utils/tar.gz/${HEAD}".version`,
       )
       .map(field => ({ field })),
+  },
+  ...[
+    `github:honeyglass/adxx#${ADX_HEAD}`,
+    `github:honeyglass/ad#${ADX_HEAD}`,
+    `github:someone/adx#${ADX_HEAD}`,
+  ].map(value => ({
+    what: `the dependency value ${value}, a name beside the listed honeyglass/adx`,
+    files: { 'package.json': manifestWith(value) },
+    hits: [{ field: 'dependencies.x', reason: UNKNOWN_FORM }],
+  })),
+  {
+    what: 'a lockfile that pins honeyglass/adx at a fork commit, at every field that names it',
+    files: { 'pnpm-lock.yaml': adxLockfile(ADX_FORK) },
+    hits: adxFields(ADX_FORK).map(field => ({ field, reason: OFF_ADX_MAIN })),
+  },
+  {
+    what: "honeyglass/adx whose peer is a fork commit of honeyglass/utils, refused as utils' at each field that names it",
+    files: { 'pnpm-lock.yaml': adxLockfile(ADX_HEAD, FORK) },
+    hits: peerFields(ADX_HEAD, FORK).map(field => ({ field, reason: OFF_UTILS_MAIN })),
+  },
+  {
+    what: "an importer that pins honeyglass/adx at the tarball of honeyglass/utils' same commit",
+    files: {
+      'pnpm-lock.yaml': adxLockfile(ADX_HEAD).replace(
+        `version: ${ADX_CODELOAD}${ADX_HEAD}`,
+        `version: ${CODELOAD}${ADX_HEAD}`,
+      ),
+    },
+    hits: [{ field: adxFields(ADX_HEAD)[1], reason: OTHER_ADX_COMMIT }],
+  },
+  {
+    what: "a package of honeyglass/adx whose tarball is honeyglass/utils' at the same commit",
+    files: {
+      'pnpm-lock.yaml': adxLockfile(ADX_HEAD).replace(
+        `tarball: ${ADX_CODELOAD}${ADX_HEAD}}`,
+        `tarball: ${CODELOAD}${ADX_HEAD}}`,
+      ),
+    },
+    hits: [
+      {
+        field: adxFields(ADX_HEAD)[3],
+        reason:
+          'a tarball other than the GitHub-hosted honeyglass/adx at the commit its key names, or none where its key names one',
+      },
+    ],
+  },
+  {
+    what: 'a peer suffix that names utils at a short sha',
+    files: {
+      'pnpm-lock.yaml': adxLockfile(ADX_HEAD).replaceAll(
+        `(@honeyglass/utils@${CODELOAD}${HEAD})`,
+        `(@honeyglass/utils@${CODELOAD}${HEAD.slice(0, 7)})`,
+      ),
+    },
+    hits: [
+      { field: adxFields(ADX_HEAD)[1], reason: UNKNOWN_FORM },
+      {
+        field: `snapshots.${JSON.stringify(`@honeyglass/adx@${ADX_CODELOAD}${ADX_HEAD}(@honeyglass/utils@${CODELOAD}${HEAD.slice(0, 7)})(zod@4.6.5)`)}`,
+        reason: UNKNOWN_FORM,
+      },
+    ],
+  },
+  {
+    what: "a snapshot dependency on another owner's utils at a commit of the same sha",
+    files: {
+      'pnpm-lock.yaml': adxLockfile(ADX_HEAD).replace(
+        `      '@honeyglass/utils': ${CODELOAD}${HEAD}\n      rxjs`,
+        `      '@honeyglass/utils': ${SOMEONE_CODELOAD}${HEAD}\n      rxjs`,
+      ),
+    },
+    hits: [
+      {
+        field: `${adxFields(ADX_HEAD)[4]}.dependencies.@honeyglass/utils`,
+        reason: UNKNOWN_FORM,
+      },
+    ],
+  },
+  ...[
+    ['honeyglass/utils at its tarball', `@honeyglass/utils@${CODELOAD}${HEAD}(zod@4.6.5)`],
+    [
+      'honeyglass/adx at its tarball',
+      `@honeyglass/adx@${ADX_CODELOAD}${ADX_HEAD}${adxPeers(HEAD)}`,
+    ],
+    ['a registry package', `foo@1.0.0(@honeyglass/utils@${CODELOAD}${HEAD})`],
+  ].map(([what = '', key = '']) => ({
+    what: `a package key of ${what} with peer suffixes, which pnpm writes on a snapshot key alone`,
+    files: {
+      'pnpm-lock.yaml': `${BLOG_LOCKFILE}\n  '${key}':\n    resolution: {integrity: ${sri('X')}}\n`,
+    },
+    hits: [{ field: `packages.${JSON.stringify(key)}`, reason: UNKNOWN_FORM }],
+  })),
+  {
+    what: "a catalog's version whose peer suffix names a tarball, which pnpm writes in an importer's alone",
+    files: {
+      'pnpm-lock.yaml': `lockfileVersion: '9.0'\n\ncatalogs:\n  default:\n    foo:\n      specifier: ^1.0.0\n      version: 1.0.0(@honeyglass/utils@${CODELOAD}${HEAD})\n`,
+    },
+    hits: [{ field: 'catalogs.default.foo.version', reason: UNKNOWN_FORM }],
+  },
+  {
+    what: "a peer suffix that names another owner's utils at a commit of the same sha",
+    files: {
+      'pnpm-lock.yaml': adxLockfile(ADX_HEAD).replaceAll(
+        `(@honeyglass/utils@${CODELOAD}`,
+        `(@honeyglass/utils@${SOMEONE_CODELOAD}`,
+      ),
+    },
+    hits: [
+      { field: adxFields(ADX_HEAD)[1], reason: UNKNOWN_FORM },
+      {
+        field: `snapshots.${JSON.stringify(`@honeyglass/adx@${ADX_CODELOAD}${ADX_HEAD}(@honeyglass/utils@${SOMEONE_CODELOAD}${HEAD})(zod@4.6.5)`)}`,
+        reason: UNKNOWN_FORM,
+      },
+    ],
+  },
+  // A tarball peer stands only on the first level behind a tarball head, and a snapshot
+  // dependency or a catalog's version names a tarball alone.
+  ...[
+    {
+      what: "an importer's registry version with a tarball peer",
+      from: '        version: 4.6.5\n',
+      to: `        version: 4.6.5(@honeyglass/utils@${CODELOAD}${HEAD})\n`,
+      field: 'importers.".".dependencies.zod.version',
+    },
+    {
+      what: 'a snapshot key of a registry version with a tarball peer',
+      from: '  tslib@2.9.1: {}\n',
+      to: `  'tslib@2.9.1(@honeyglass/utils@${CODELOAD}${HEAD})': {}\n`,
+      field: `snapshots.${JSON.stringify(`tslib@2.9.1(@honeyglass/utils@${CODELOAD}${HEAD})`)}`,
+    },
+    {
+      what: 'a snapshot dependency of a registry version with a tarball peer',
+      from: '      tslib: 2.9.1\n',
+      to: `      tslib: 2.9.1(@honeyglass/utils@${CODELOAD}${HEAD})\n`,
+      field: 'snapshots."rxjs@7.8.2".dependencies.tslib',
+    },
+    {
+      what: 'a snapshot dependency of a tarball with a peer',
+      from: `      '@honeyglass/utils': ${CODELOAD}${HEAD}\n`,
+      to: `      '@honeyglass/utils': ${CODELOAD}${HEAD}(zod@4.6.5)\n`,
+      field: `${adxFields(ADX_HEAD)[4]}.dependencies.@honeyglass/utils`,
+    },
+    {
+      what: 'a snapshot dependency of a registry version with nested tarball peers',
+      from: '      rxjs: 7.8.2\n',
+      to: `      rxjs: 7.8.2(x@${ADX_CODELOAD}${ADX_HEAD}(y@${CODELOAD}${HEAD}(z@1.0.0)))\n`,
+      field: `${adxFields(ADX_HEAD)[4]}.dependencies.rxjs`,
+    },
+    {
+      what: "an importer's tarball whose tarball peer has a tarball peer of its own",
+      from: `version: ${ADX_CODELOAD}${ADX_HEAD}${adxPeers(HEAD)}\n`,
+      to: `version: ${ADX_CODELOAD}${ADX_HEAD}(x@${CODELOAD}${HEAD}(y@${CODELOAD}${HEAD}))\n`,
+      field: adxFields(ADX_HEAD)[1],
+    },
+    {
+      what: "an importer's tarball whose registry peer has a tarball peer",
+      from: `version: ${ADX_CODELOAD}${ADX_HEAD}${adxPeers(HEAD)}\n`,
+      to: `version: ${ADX_CODELOAD}${ADX_HEAD}(zod@4.6.5(@honeyglass/utils@${CODELOAD}${HEAD}))\n`,
+      field: adxFields(ADX_HEAD)[1],
+    },
+    {
+      what: "an importer's tarball whose tarball peer has a registry peer of its own",
+      from: `version: ${ADX_CODELOAD}${ADX_HEAD}${adxPeers(HEAD)}\n`,
+      to: `version: ${ADX_CODELOAD}${ADX_HEAD}(x@${CODELOAD}${HEAD}(y@1.0.0))\n`,
+      field: adxFields(ADX_HEAD)[1],
+    },
+    {
+      what: 'a snapshot key whose tarball peer has a registry peer of its own',
+      from: `  '@honeyglass/adx@${ADX_CODELOAD}${ADX_HEAD}${adxPeers(HEAD)}':\n`,
+      to: `  '@honeyglass/adx@${ADX_CODELOAD}${ADX_HEAD}(x@${CODELOAD}${HEAD}(y@1.0.0))':\n`,
+      field: `snapshots.${JSON.stringify(`@honeyglass/adx@${ADX_CODELOAD}${ADX_HEAD}(x@${CODELOAD}${HEAD}(y@1.0.0))`)}`,
+    },
+  ].map(({ what, from, to, field }) => ({
+    what: `${what}, which pnpm does not write`,
+    files: { 'pnpm-lock.yaml': adxLockfile(ADX_HEAD).replace(from, to) },
+    hits: [{ field, reason: UNKNOWN_FORM }],
+  })),
+  {
+    what: "a catalog's pinned version as its tarball with a peer, which pnpm does not write",
+    files: {
+      'pnpm-lock.yaml': `lockfileVersion: '9.0'\n\ncatalogs:\n  default:\n    '@honeyglass/utils':\n      specifier: github:honeyglass/utils#${HEAD}\n      version: ${CODELOAD}${HEAD}(zod@4.6.5)\n`,
+    },
+    hits: [{ field: 'catalogs.default.@honeyglass/utils.version', reason: UNKNOWN_FORM }],
   },
   {
     what: "an importer whose version names another commit than its specifier's",
@@ -841,8 +1189,8 @@ const refused: Row[] = [
     what: 'gitHosted on a registry package',
     files: {
       'pnpm-lock.yaml': BLOG_LOCKFILE.replace(
-        '{integrity: sha512-GGGG==}',
-        '{gitHosted: true, integrity: sha512-GGGG==}',
+        `{integrity: ${sri('G')}}`,
+        `{gitHosted: true, integrity: ${sri('G')}}`,
       ),
     },
     hits: [{ field: 'packages."glob@10.5.0".resolution.gitHosted', value: 'true' }],
@@ -870,13 +1218,13 @@ const refused: Row[] = [
     hits: [{ field: 'importers.".".dependencies.@honeyglass/utils.version' }],
   },
   ...[
-    ['its integrity alone', '{integrity: sha512-IIII==}'],
-    ['gitHosted without a tarball', '{gitHosted: true, integrity: sha512-IIII==}'],
+    ['its integrity alone', `{integrity: ${sri('I')}}`],
+    ['gitHosted without a tarball', `{gitHosted: true, integrity: ${sri('I')}}`],
   ].map(([what = '', resolution = '']) => ({
     what: `a package of the git-hosted key with ${what}`,
     files: {
       'pnpm-lock.yaml': pinnedLockfile(HEAD).replace(
-        `{gitHosted: true, integrity: sha512-IIII==, tarball: ${CODELOAD}${HEAD}}`,
+        `{gitHosted: true, integrity: ${sri('I')}, tarball: ${CODELOAD}${HEAD}}`,
         resolution,
       ),
     },
@@ -886,8 +1234,8 @@ const refused: Row[] = [
     what: 'a version on a registry package',
     files: {
       'pnpm-lock.yaml': BLOG_LOCKFILE.replace(
-        '{integrity: sha512-GGGG==}\n',
-        '{integrity: sha512-GGGG==}\n    version: 10.5.0\n',
+        `{integrity: ${sri('G')}}\n`,
+        `{integrity: ${sri('G')}}\n    version: 10.5.0\n`,
       ),
     },
     hits: [{ field: 'packages."glob@10.5.0".version', value: '"10.5.0"' }],
@@ -911,9 +1259,9 @@ const refused: Row[] = [
     what: 'an anchor and its alias in a lockfile',
     files: {
       'pnpm-lock.yaml': BLOG_LOCKFILE.replace(
-        'resolution: {integrity: sha512-GGGG==}',
-        'resolution: &r {integrity: sha512-GGGG==}',
-      ).replace('resolution: {integrity: sha512-HHHH==}', 'resolution: *r'),
+        `resolution: {integrity: ${sri('G')}}`,
+        `resolution: &r {integrity: ${sri('G')}}`,
+      ).replace(`resolution: {integrity: ${sri('H')}}`, 'resolution: *r'),
     },
     hits: [{ field: '', value: '' }],
   },
@@ -991,7 +1339,7 @@ const refused: Row[] = [
   {
     what: 'a package key of a local source',
     files: {
-      'pnpm-lock.yaml': `lockfileVersion: '9.0'\npackages:\n  a@file:../a:\n    resolution: {integrity: sha512-AAAA==}\n`,
+      'pnpm-lock.yaml': `lockfileVersion: '9.0'\npackages:\n  a@file:../a:\n    resolution: {integrity: ${sri('A')}}\n`,
     },
     hits: [{ field: 'packages."a@file:../a"', value: '"a@file:../a"' }],
   },
@@ -1114,6 +1462,129 @@ const refused: Row[] = [
     files: { 'package.json': manifestWith('https://me:pass@example.com/a-1.0.0.tgz') },
     hits: [{ field: 'dependencies.x', value: '"https://***@example.com/a-1.0.0.tgz"' }],
   },
+  {
+    what: "a URL's user info after a scheme that starts with a digit, which the hit masks",
+    files: { 'package.json': manifestWith('1://me:pass@example.com/a') },
+    hits: [{ field: 'dependencies.x', value: '"1://***@example.com/a"' }],
+  },
+  {
+    what: "a URL's user info that the cut of a long value splits, which the hit masks",
+    files: { 'package.json': manifestWith(`${'b'.repeat(60)}https://me:${'p'.repeat(40)}@h/`) },
+    hits: [{ field: 'dependencies.x', value: `"${'b'.repeat(60)}https://***@h/"` }],
+  },
+  // pnpm installs a package's peer from its range where the peer is missing, so only registry
+  // ranges, dist-tags and a pinned commit of REPOSITORIES pass
+  ...[
+    `github:someone/evil#${HEAD}`,
+    'git+https://github.com/someone/evil.git',
+    'https://example.com/evil.tgz',
+    'evil.tgz',
+    'someone/evil',
+    'file:../evil',
+    'link:../evil',
+    'workspace:*',
+    '@>=10',
+    '^>=0.64',
+    '',
+    `npm:x@github:someone/evil#${HEAD}`,
+    'npm:x@https://example.com/evil.tgz',
+    'github:honeyglass/utils#a6c8b94',
+  ].map(range => ({
+    what: `a package's peer range ${range}`,
+    files: { 'pnpm-lock.yaml': peerLockfile(range) },
+    hits: [{ field: 'packages."foo@1.0.0".peerDependencies.react', reason: UNKNOWN_PEER }],
+  })),
+  {
+    what: "a package's peer range on a second commit of honeyglass/utils, as one of two",
+    files: {
+      'pnpm-lock.yaml': adxLockfile(ADX_HEAD).replace(
+        `#${HEAD}\n      zod: ^4.6.5`,
+        `#${BEHIND}\n      zod: ^4.6.5`,
+      ),
+    },
+    hits: peerFields(ADX_HEAD, HEAD).map(field => ({
+      field,
+      reason: `one of 2 commits of honeyglass/utils pinned at once, and a check passes one per repository`,
+    })),
+  },
+  // pnpm makes a folder of a dependency's name, so a name passes only as an npm package name
+  ...[
+    ['an importer', namedLockfile('..'), 'importers.".".dependencies.".."', '..'],
+    ['an importer', namedLockfile('../../x'), 'importers.".".dependencies."../../x"', '../../x'],
+    [
+      'a snapshot',
+      `lockfileVersion: '9.0'\nsnapshots:\n  foo@1.0.0:\n    optionalDependencies:\n      '.x': 1.0.0\n`,
+      'snapshots."foo@1.0.0".optionalDependencies.".x"',
+      '.x',
+    ],
+    [
+      'a peer',
+      peerLockfile('^1.0.0', '@scope/..'),
+      'packages."foo@1.0.0".peerDependencies."@scope/.."',
+      '@scope/..',
+    ],
+    [
+      'a peer',
+      peerLockfile('^1.0.0', 'a/b/c'),
+      'packages."foo@1.0.0".peerDependencies.a/b/c',
+      'a/b/c',
+    ],
+  ].map(([where = '', text = '', field = '', name = '']) => ({
+    what: `the name ${name} of ${where}'s dependency`,
+    files: { 'pnpm-lock.yaml': text },
+    hits: [{ field, value: JSON.stringify(name), reason: UNKNOWN_NAME }],
+  })),
+  {
+    what: 'a package key whose name is ..',
+    files: {
+      'pnpm-lock.yaml': `lockfileVersion: '9.0'\npackages:\n  ..@1.0.0:\n    resolution: {integrity: ${sri('A')}}\n`,
+    },
+    hits: [{ field: 'packages."..@1.0.0"', reason: UNKNOWN_FORM }],
+  },
+  // pnpm checks the fetched bytes against the integrity, so only a sha512 of its length passes
+  ...[
+    'sha1-AAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+    'sha512-AAAA==',
+    `${sri('A')} sha1-AAAAAAAAAAAAAAAAAAAAAAAAAAA=`,
+    'sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+  ].map(integrity => ({
+    what: `the integrity ${integrity.slice(0, 20)}`,
+    files: {
+      'pnpm-lock.yaml': `lockfileVersion: '9.0'\npackages:\n  foo@1.0.0:\n    resolution: {integrity: '${integrity}'}\n`,
+    },
+    hits: [{ field: 'packages."foo@1.0.0".resolution.integrity', reason: WEAK_INTEGRITY }],
+  })),
+  // a key comes from the checked file, so its URL's user info is masked in the field's path too
+  ...[
+    [
+      'an importer dependency',
+      namedLockfile(SECRET_URL),
+      `importers.".".dependencies."${MASKED_URL}"`,
+      UNKNOWN_NAME,
+    ],
+    [
+      'a peer',
+      peerLockfile('^1.0.0', SECRET_URL),
+      `packages."foo@1.0.0".peerDependencies."${MASKED_URL}"`,
+      UNKNOWN_NAME,
+    ],
+    [
+      'a snapshot key',
+      `lockfileVersion: '9.0'\nsnapshots:\n  'x@${SECRET_URL}.tgz': {}\n`,
+      `snapshots."x@${MASKED_URL}.tgz"`,
+      UNKNOWN_FORM,
+    ],
+    [
+      'a package key',
+      `lockfileVersion: '9.0'\npackages:\n  'x@${SECRET_URL}.tgz':\n    resolution: {integrity: ${sri('A')}}\n`,
+      `packages."x@${MASKED_URL}.tgz"`,
+      UNKNOWN_FORM,
+    ],
+  ].map(([where = '', text = '', field = '', reason = '']) => ({
+    what: `the user info of a URL in ${where}'s name, masked in the field's path`,
+    files: { 'pnpm-lock.yaml': text },
+    hits: [{ field, reason }],
+  })),
 ];
 
 describe('the supply check', () => {
@@ -1176,15 +1647,37 @@ const answering =
   (status: number, text: string, headers: Record<string, string> = {}): Fetch =>
   async () => ({ status, headers, text });
 
-// a fetch that records each request and answers as `github` does
-const recorded = () => {
+// The install of honeyglass/adx as pnpm 12.9.0 recorded it on 2026-11-26, byte for byte. Its
+// files end in .txt, as the supply check reads every tracked package.json and pnpm-lock.yaml
+// as the repository's own, whose pins would count against its one commit per repository.
+const RECORDED = Object.fromEntries(
+  ['package.json', 'pnpm-lock.yaml'].map(name => [
+    name,
+    readFileSync(new URL(`../fixtures/adx-install/${name}.txt`, import.meta.url), 'utf8'),
+  ]),
+);
+
+// a fetch that records each request and answers as `answer` does
+const recorded = (answer: Fetch = github) => {
   const asked: { url: string; headers: Record<string, string> }[] = [];
   const fetch: Fetch = async (url, init) => {
     asked.push({ url, headers: init.headers });
-    return github(url, init);
+    return answer(url, init);
   };
   return { asked, fetch };
 };
+
+// adxLockfile with rxjs' tslib at utils' tarball at `sha`. The check binds no package name to
+// a repository (honeyglass/actions TODO.md #1), so the form passes; the commit still counts
+// as one of honeyglass/utils.
+const renamedTarball = (sha: string) =>
+  adxLockfile(ADX_HEAD).replace('      tslib: 2.9.1\n', `      tslib: ${CODELOAD}${sha}\n`);
+
+// a fetch that fails for honeyglass/adx alone and answers for utils as `github` does
+const adxFailing: Fetch = async (url, init) =>
+  url.startsWith(ADX_COMPARE)
+    ? { status: 502, headers: {}, text: 'Bad Gateway' }
+    : github(url, init);
 
 // a fetch whose host cannot be reached
 const unreachable: Fetch = async () => {
@@ -1203,6 +1696,99 @@ describe('the supply check asking GitHub whether a pinned commit lies on main', 
       [`${COMPARE}${HEAD}`],
     );
     assert.equal(asked[0]?.headers.authorization, undefined);
+  });
+
+  test("asks about pnpm's recorded install of adx at the compare of each repository's main", async () => {
+    const { asked, fetch } = recorded(
+      answering(200, '{"status":"identical","ahead_by":0,"behind_by":0}'),
+    );
+    assert.deepEqual(await hitsOf({ files: RECORDED, fetch }), []);
+    assert.deepEqual(
+      asked.map(({ url }) => url),
+      [
+        'https://api.github.com/repos/honeyglass/adx/compare/main...2a7536ced9d17f63e8318d43ab542f86f1a6dd99',
+        'https://api.github.com/repos/honeyglass/utils/compare/main...a6c8b941393ba0831b2909a54dae0a59d40f50bf',
+      ],
+    );
+  });
+
+  test("refuses utils' commit pinned as adx, asking adx's main, as utils' main proves nothing for adx", async () => {
+    const { asked, fetch } = recorded();
+    const files = { 'package.json': adxManifest(HEAD) };
+    assertHits(await hitsOf({ files, fetch }), [
+      { field: 'dependencies.@honeyglass/adx', reason: OFF_ADX_MAIN },
+    ]);
+    assert.deepEqual(
+      asked.map(({ url }) => url),
+      [`${ADX_COMPARE}${HEAD}`, `${COMPARE}${HEAD}`],
+    );
+  });
+
+  test('refuses two commits of one repository at their fields, and asks about the other alone', async () => {
+    const { asked, fetch } = recorded();
+    const files = {
+      'package.json': adxManifest(ADX_HEAD, HEAD),
+      'pnpm-lock.yaml': adxLockfile(ADX_HEAD, BEHIND),
+    };
+    const reason = `one of 2 commits of honeyglass/utils pinned at once, and a check passes one per repository`;
+    assertHits(await hitsOf({ files, fetch }), [
+      { file: 'package.json', field: 'dependencies.@honeyglass/utils', reason },
+      ...peerFields(ADX_HEAD, BEHIND).map(field => ({ file: 'pnpm-lock.yaml', field, reason })),
+    ]);
+    assert.deepEqual(
+      asked.map(({ url }) => url),
+      [`${ADX_COMPARE}${ADX_HEAD}`],
+    );
+  });
+
+  test("refuses as GitHub's refusal when GitHub fails for adx alone and utils' commit lies on main", async () => {
+    const { asked, fetch } = recorded(adxFailing);
+    const answer = await hitsOf({ files: { 'package.json': adxManifest(ADX_HEAD) }, fetch });
+    assert.ok(isRefusal(answer), `hits in place of a refusal: ${JSON.stringify(answer)}`);
+    assert.equal(answer.kind, 'retry');
+    assert.equal(answer.step, 'supply check');
+    assert.deepEqual(
+      asked.map(({ url }) => url),
+      [`${ADX_COMPARE}${ADX_HEAD}`, `${COMPARE}${HEAD}`],
+    );
+  });
+
+  test("keeps utils' off-main hit in place of GitHub's refusal when GitHub fails for adx alone", async () => {
+    const files = { 'package.json': adxManifest(ADX_HEAD, FORK) };
+    assertHits(await hitsOf({ files, fetch: adxFailing }), [
+      { field: 'dependencies.@honeyglass/utils', reason: OFF_UTILS_MAIN },
+    ]);
+  });
+
+  test("asks GitHub of utils' tarball that a snapshot dependency names under another name", async () => {
+    const { asked, fetch } = recorded();
+    assert.deepEqual(
+      await hitsOf({ files: { 'pnpm-lock.yaml': renamedTarball(HEAD) }, fetch }),
+      [],
+    );
+    assert.deepEqual(
+      asked.map(({ url }) => url),
+      [`${ADX_COMPARE}${ADX_HEAD}`, `${COMPARE}${HEAD}`],
+    );
+  });
+
+  test("refuses utils' second commit that a snapshot dependency names under another name", async () => {
+    const reason = `one of 2 commits of honeyglass/utils pinned at once, and a check passes one per repository`;
+    assertHits(
+      await hitsOf({ files: { 'pnpm-lock.yaml': renamedTarball(BEHIND) } }),
+      [...peerFields(ADX_HEAD, HEAD), 'snapshots."rxjs@7.8.2".dependencies.tslib'].map(field => ({
+        field,
+        reason,
+      })),
+    );
+  });
+
+  test("refuses as GitHub's refusal when GitHub fails for both repositories", async () => {
+    const files = { 'package.json': adxManifest(ADX_HEAD) };
+    const answer = await hitsOf({ files, fetch: answering(502, 'Bad Gateway') });
+    assert.ok(isRefusal(answer), `hits in place of a refusal: ${JSON.stringify(answer)}`);
+    assert.equal(answer.kind, 'retry');
+    assert.equal(answer.step, 'supply check');
   });
 
   test("sends CI's token as a bearer token", async () => {
@@ -1288,6 +1874,9 @@ describe('the supply check asking GitHub whether a pinned commit lies on main', 
   }
 });
 
+// the reason of every field that pins one of two commits of honeyglass/adx
+const TWO_ADX = `one of 2 commits of honeyglass/adx pinned at once, and a check passes one per repository`;
+
 describe("the supply check without GitHub's API, as the commit tool and make-repo run it", () => {
   for (const [what, sha] of [
     ["main's head", HEAD],
@@ -1301,6 +1890,70 @@ describe("the supply check without GitHub's API, as the commit tool and make-rep
       assert.deepEqual(await localHitsOf(files), []);
     });
   }
+
+  test("passes pnpm's recorded install of adx on its form alone", async () => {
+    assert.deepEqual(await localHitsOf(RECORDED), []);
+  });
+
+  // Each input took the check seconds or never returned before its fix and takes milliseconds
+  // now, so a bound of one second fails only for the old forms.
+  test('refuses 32000 distinct commits of honeyglass/utils at their fields within a second', async () => {
+    const shas = Array.from({ length: 32_000 }, (_, i) => i.toString(16).padStart(40, '0'));
+    const pins = Object.fromEntries(
+      shas.map((sha, i) => [`p${i}`, `github:honeyglass/utils#${sha}`]),
+    );
+    const reason =
+      'one of 32000 commits of honeyglass/utils pinned at once, and a check passes one per repository';
+    const manifest = JSON.stringify({ dependencies: pins });
+    const started = Date.now();
+    const hits = await localHitsOf({ 'package.json': manifest });
+    const took = Date.now() - started;
+    assertHits(
+      hits,
+      shas.map((sha, i) => ({
+        field: `dependencies.p${i}`,
+        value: `"github:honeyglass/utils#${sha}"`,
+        reason,
+      })),
+    );
+    // each line holds its own field, value and the count, so k fields print k short lines
+    assert.ok(Array.isArray(hits) && hits.every(hit => hitLine(hit).length < 200));
+    assert.ok(took < 1000, `took ${took} ms`);
+  });
+
+  test("masks a value of 100000 characters before a '://' with no '@' within a second", async () => {
+    const manifest = manifestWith(`${'a'.repeat(100_000)}://`);
+    const started = Date.now();
+    const hits = await localHitsOf({ 'package.json': manifest });
+    const took = Date.now() - started;
+    assertHits(hits, [{ field: 'dependencies.x', value: `"${'a'.repeat(76)}...` }]);
+    assert.ok(took < 1000, `took ${took} ms`);
+  });
+
+  test("refuses a peer range of 40 x's joined by || before a stray character within a second", async () => {
+    const lockfile = peerLockfile(`${'x||'.repeat(40)}!`);
+    const started = Date.now();
+    const hits = await localHitsOf({ 'pnpm-lock.yaml': lockfile });
+    const took = Date.now() - started;
+    assertHits(hits, [
+      { field: 'packages."foo@1.0.0".peerDependencies.react', reason: UNKNOWN_PEER },
+    ]);
+    assert.ok(took < 1000, `took ${took} ms`);
+  });
+
+  test("passes this repository's own manifest and lockfile on their form alone", async () => {
+    const files = Object.fromEntries(
+      ['package.json', 'pnpm-lock.yaml'].map(name => [
+        name,
+        readFileSync(new URL(`../../${name}`, import.meta.url), 'utf8'),
+      ]),
+    );
+    assert.deepEqual(await localHitsOf(files), []);
+  });
+
+  test("passes utils' tarball that a snapshot dependency names under another name on its form alone", async () => {
+    assert.deepEqual(await localHitsOf({ 'pnpm-lock.yaml': renamedTarball(HEAD) }), []);
+  });
 
   for (const { what, files, hits } of [
     {
@@ -1344,6 +1997,17 @@ describe("the supply check without GitHub's API, as the commit tool and make-rep
       },
       hits: [
         { file: 'pnpm-lock.yaml', field: 'importers.".".dependencies.@honeyglass/utils.version' },
+      ],
+    },
+    {
+      what: 'two pinned commits of honeyglass/adx',
+      files: {
+        'package.json': manifestWith(`github:honeyglass/adx#${ADX_HEAD}`),
+        'pnpm-lock.yaml': adxLockfile(ADX_FORK),
+      },
+      hits: [
+        { file: 'package.json', field: 'dependencies.x', reason: TWO_ADX },
+        ...adxFields(ADX_FORK).map(field => ({ file: 'pnpm-lock.yaml', field, reason: TWO_ADX })),
       ],
     },
   ]) {
@@ -1462,6 +2126,77 @@ describe('the attributes by which git converts a supply file in the worktree', (
       assertHits(conversionHits(listing), [
         { file: 'a b/pnpm-lock.yaml', field: attribute, value: JSON.stringify(value) },
       ]);
+    });
+  }
+});
+
+describe('what a path holds, from one listing of the index or a tree', () => {
+  // one stage per line for 'd', as an unmerged index lists it; the first answers
+  const kindOf = kindsIn([
+    { path: 'a-b/x', mode: '100644' },
+    { path: 'a.b/x', mode: '100644' },
+    { path: 'a/x', mode: '100644' },
+    { path: 'ab', mode: '100755' },
+    { path: 'ä/x', mode: '100644' },
+    { path: '𝒳/y', mode: '100644' },
+    { path: 'up', mode: '120000' },
+    { path: 'sub', mode: '160000' },
+    { path: 'd', mode: '100644' },
+    { path: 'd', mode: '120000' },
+  ]);
+  for (const [path, kind] of [
+    ['a', 'folder'],
+    ['a-b', 'folder'],
+    ['a.b', 'folder'],
+    ['a.', undefined],
+    ['a-', undefined],
+    ['ab', 'file'],
+    ['a/x', 'file'],
+    ['ä', 'folder'],
+    ['𝒳', 'folder'],
+    ['up', 'link'],
+    ['sub', undefined],
+    ['d', 'file'],
+    ['x', undefined],
+  ] as const) {
+    test(`answers ${path} as ${kind ?? 'none'}`, () => {
+      assert.equal(kindOf(path), kind);
+    });
+  }
+});
+// URLs whose user info a URL parser reads, with a quote, a space, a line break or a second '@'
+// in the password among them
+const USER_INFO_CASES = [
+  'https://user1:pw1@h.example/a.tgz',
+  'https://user1:pw"1@h.example/a.tgz',
+  'https://user1:pw 1@h.example/a.tgz',
+  'https://user1:pw\u00a01@h.example/a.tgz',
+  'https://user1:pw\u20281@h.example/a.tgz',
+  'https://user1:pw\n1@h.example/a.tgz',
+  'https://user1:pw\t1@h.example/a.tgz',
+  'https://user1:p@w1@h.example/a.tgz',
+  'https://user1@h.example/a.tgz',
+  'git+ssh://user1:pw1@h.example/a.git',
+  'HTTPS://user1:pw1@h.example/a.tgz',
+  'foo://user1:pw1@h.example/a',
+];
+
+describe("a URL's user info in a hit's value", () => {
+  for (const text of USER_INFO_CASES) {
+    // the name escapes each character past ASCII, so U+2028 breaks no line of the report
+    const named = JSON.stringify(text).replace(
+      /[^\x20-\x7e]/gu,
+      c => `\\u{${c.codePointAt(0)?.toString(16)}}`,
+    );
+    test(`masks what a URL parser reads as user and password in ${named}`, async () => {
+      const url = new URL(text);
+      assert.equal(url.username, 'user1');
+      const hits = await localHitsOf({ 'package.json': manifestWith(text) });
+      assert.ok(Array.isArray(hits), `a refusal in place of hits: ${JSON.stringify(hits)}`);
+      const [hit] = hits;
+      for (const part of ['user1', 'pw', decodeURIComponent(url.password)].filter(Boolean))
+        assert.equal(hit?.value.includes(part), false, `${part} in ${hit?.value}`);
+      assert.equal(hit?.value.includes('***@h.example'), true, hit?.value);
     });
   }
 });
