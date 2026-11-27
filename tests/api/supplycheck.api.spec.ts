@@ -1911,9 +1911,28 @@ describe("the supply check without GitHub's API, as the commit tool and make-rep
   // now, so a bound of one second fails only for the old forms.
   test('refuses 32000 distinct commits of honeyglass/utils at their fields within a second', async () => {
     const shas = Array.from({ length: 32_000 }, (_, i) => i.toString(16).padStart(40, '0'));
-    // a manifest of its own per commit, each naming utils by its own name, so every pin is bound
+    // utils under its own name in each of the five fields a manifest pins from, so every pin is
+    // bound and each file holds five; a file of its own per pin would cost the test runner's
+    // promise tracking more than the check
+    const FIELDS = [
+      'dependencies',
+      'devDependencies',
+      'optionalDependencies',
+      'peerDependencies',
+      'resolutions',
+    ];
     const files = Object.fromEntries(
-      shas.map((sha, i) => [`p/${i}/package.json`, pinnedManifest('utils', sha)]),
+      Array.from({ length: shas.length / FIELDS.length }, (_, i) => [
+        `p/${i}/package.json`,
+        JSON.stringify(
+          Object.fromEntries(
+            FIELDS.map((field, f) => [
+              field,
+              { '@honeyglass/utils': `github:honeyglass/utils#${shas[i * FIELDS.length + f]}` },
+            ]),
+          ),
+        ),
+      ]),
     );
     const reason =
       'one of 32000 commits of honeyglass/utils pinned at once, and a check passes one per repository';
@@ -1922,9 +1941,9 @@ describe("the supply check without GitHub's API, as the commit tool and make-rep
     const took = Date.now() - started;
     assertHits(
       hits,
-      shas.map((sha, i) => ({
-        file: `p/${i}/package.json`,
-        field: 'dependencies.@honeyglass/utils',
+      shas.map((sha, k) => ({
+        file: `p/${Math.floor(k / FIELDS.length)}/package.json`,
+        field: `${FIELDS[k % FIELDS.length]}.@honeyglass/utils`,
         value: `"github:honeyglass/utils#${sha}"`,
         reason,
       })),
