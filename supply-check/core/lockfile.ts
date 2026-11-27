@@ -4,8 +4,8 @@
  * lockfileHits: the hits of a lockfile's documents, one or two with packageManager set.
  *
  * pnpm installs from a package's tarball, so a tarball passes only as a GitHub-hosted
- * repository of REPOSITORIES at the commit its key names, which settledHits then asks GitHub
- * about.
+ * repository of GIT_SOURCES at the commit its key names, which settledHits binds to the name the
+ * key gives it and then asks GitHub about.
  *
  * The other fields pass by the schema's shape alone. pnpm decides by engines, cpu, os and libc
  * whether to skip or fail a package, by hasBin whether to link its bins, by optional and
@@ -89,7 +89,7 @@ const documentHits = async (file: string, document: unknown, where: Where) => {
           file,
           ['snapshots', key, kind, name],
           version,
-          resolvedFault(version, VERSION_HEADS, ALONE),
+          resolvedFault(version, VERSION_HEADS, ALONE, name),
         ),
       ]),
     ),
@@ -145,12 +145,12 @@ const lockedHits = (
       {
         field: [...field, name, 'specifier'],
         value: specifier,
-        fault: (value: string) => specifierFault(value, where),
+        fault: (value: string) => specifierFault(value, where, name),
       },
       {
         field: [...field, name, 'version'],
         value: version,
-        fault: (value: string) => versionFault(value, specifier, where, tarballPeers),
+        fault: (value: string) => versionFault(value, specifier, where, tarballPeers, name),
       },
     ]),
   );
@@ -173,7 +173,12 @@ const packageHits = (
   ...versionHits(file, key, version),
   ...Object.entries(peerDependencies).flatMap(([name, range]) => [
     ...nameHits(file, ['packages', key, 'peerDependencies'], name),
-    ...faultHits(file, ['packages', key, 'peerDependencies', name], range, peerRangeFault(range)),
+    ...faultHits(
+      file,
+      ['packages', key, 'peerDependencies', name],
+      range,
+      peerRangeFault(range, name),
+    ),
   ]),
 ];
 
@@ -185,8 +190,9 @@ const packageHits = (
  * no suffix slips a tarball past resolutionHits.
  */
 const packageKeyFault = (key: string) => {
-  const [, , repository, sha] = GITHOSTED_KEY.exec(key) ?? [];
-  if (repository !== undefined && sha !== undefined) return { pins: [{ repository, sha }] };
+  const [, name, , repository, sha] = GITHOSTED_KEY.exec(key) ?? [];
+  if (name !== undefined && repository !== undefined && sha !== undefined)
+    return { pins: [{ name, repository, sha }] };
   return isResolved(key, PEER) ? undefined : UNKNOWN_FORM;
 };
 
@@ -202,13 +208,13 @@ const resolutionHits = (
   key: string,
   { tarball, gitHosted }: Package['resolution'],
 ) => {
-  const [, url, repository, sha] = GITHOSTED_KEY.exec(key) ?? [];
+  const [, name = '', url, repository, sha] = GITHOSTED_KEY.exec(key) ?? [];
   if (url === undefined && tarball === undefined) {
     const fault = gitHosted === undefined ? undefined : STRAY_GITHOSTED;
     return faultHits(file, [...field, 'gitHosted'], gitHosted, fault);
   }
   const isOwn = tarball === url && gitHosted === true && sha !== undefined;
-  const fault = isOwn ? { pins: [{ repository, sha }] } : foreignTarball(repository);
+  const fault = isOwn ? { pins: [{ name, repository, sha }] } : foreignTarball(repository);
   return faultHits(file, [...field, 'tarball'], tarball, fault);
 };
 
@@ -216,7 +222,7 @@ const resolutionHits = (
 // every other package's.
 const versionHits = (file: string, key: string, version: string | undefined) => {
   if (version === undefined) return [];
-  const [, url, repository] = GITHOSTED_KEY.exec(key) ?? [];
+  const [, , url, repository] = GITHOSTED_KEY.exec(key) ?? [];
   const isOwn = url !== undefined && EXACT_VERSION.test(version);
   return faultHits(
     file,

@@ -4,8 +4,8 @@
  * lockfileHits: the hits of a lockfile's documents, one or two with packageManager set.
  *
  * pnpm installs from a package's tarball, so a tarball passes only as a GitHub-hosted
- * repository of REPOSITORIES at the commit its key names, which settledHits then asks GitHub
- * about.
+ * repository of GIT_SOURCES at the commit its key names, which settledHits binds to the name the
+ * key gives it and then asks GitHub about.
  *
  * The other fields pass by the schema's shape alone. pnpm decides by engines, cpu, os and libc
  * whether to skip or fail a package, by hasBin whether to link its bins, by optional and
@@ -53,7 +53,7 @@ const documentHits = async (file, document, where) => {
     const snapshotKeys = Object.keys(snapshots).flatMap(key => faultHits(file, ['snapshots', key], key, resolvedFault(key, KEY_HEADS, PINNED_PEER)));
     const snapped = Object.entries(snapshots).flatMap(([key, snapshot]) => ['dependencies', 'optionalDependencies'].flatMap(kind => Object.entries(snapshot[kind] ?? {}).flatMap(([name, version]) => [
         ...nameHits(file, ['snapshots', key, kind], name),
-        ...faultHits(file, ['snapshots', key, kind, name], version, resolvedFault(version, VERSION_HEADS, ALONE)),
+        ...faultHits(file, ['snapshots', key, kind, name], version, resolvedFault(version, VERSION_HEADS, ALONE, name)),
     ])));
     return [...imported.flat(), ...catalogued.flat(), ...packaged, ...snapshotKeys, ...snapped];
 };
@@ -74,12 +74,12 @@ const lockedHits = (file, field, locked, where, tarballPeers) => valueHits(file,
     {
         field: [...field, name, 'specifier'],
         value: specifier,
-        fault: (value) => specifierFault(value, where),
+        fault: (value) => specifierFault(value, where, name),
     },
     {
         field: [...field, name, 'version'],
         value: version,
-        fault: (value) => versionFault(value, specifier, where, tarballPeers),
+        fault: (value) => versionFault(value, specifier, where, tarballPeers, name),
     },
 ]));
 // A package's key, its resolution's tarball and hash, its own version, if any, and its peers,
@@ -91,7 +91,7 @@ const packageHits = (file, key, { resolution, version, peerDependencies = {} }) 
     ...versionHits(file, key, version),
     ...Object.entries(peerDependencies).flatMap(([name, range]) => [
         ...nameHits(file, ['packages', key, 'peerDependencies'], name),
-        ...faultHits(file, ['packages', key, 'peerDependencies', name], range, peerRangeFault(range)),
+        ...faultHits(file, ['packages', key, 'peerDependencies', name], range, peerRangeFault(range, name)),
     ]),
 ];
 /**
@@ -102,9 +102,9 @@ const packageHits = (file, key, { resolution, version, peerDependencies = {} }) 
  * no suffix slips a tarball past resolutionHits.
  */
 const packageKeyFault = (key) => {
-    const [, , repository, sha] = GITHOSTED_KEY.exec(key) ?? [];
-    if (repository !== undefined && sha !== undefined)
-        return { pins: [{ repository, sha }] };
+    const [, name, , repository, sha] = GITHOSTED_KEY.exec(key) ?? [];
+    if (name !== undefined && repository !== undefined && sha !== undefined)
+        return { pins: [{ name, repository, sha }] };
     return isResolved(key, PEER) ? undefined : UNKNOWN_FORM;
 };
 /**
@@ -114,13 +114,13 @@ const packageKeyFault = (key) => {
  * pnpm installs from the tarball, so a key that names a commit without it installs from elsewhere.
  */
 const resolutionHits = (file, field, key, { tarball, gitHosted }) => {
-    const [, url, repository, sha] = GITHOSTED_KEY.exec(key) ?? [];
+    const [, name = '', url, repository, sha] = GITHOSTED_KEY.exec(key) ?? [];
     if (url === undefined && tarball === undefined) {
         const fault = gitHosted === undefined ? undefined : STRAY_GITHOSTED;
         return faultHits(file, [...field, 'gitHosted'], gitHosted, fault);
     }
     const isOwn = tarball === url && gitHosted === true && sha !== undefined;
-    const fault = isOwn ? { pins: [{ repository, sha }] } : foreignTarball(repository);
+    const fault = isOwn ? { pins: [{ name, repository, sha }] } : foreignTarball(repository);
     return faultHits(file, [...field, 'tarball'], tarball, fault);
 };
 // A package's own version, which pnpm writes beside a GitHub-hosted key alone, as its keys hold
@@ -128,7 +128,7 @@ const resolutionHits = (file, field, key, { tarball, gitHosted }) => {
 const versionHits = (file, key, version) => {
     if (version === undefined)
         return [];
-    const [, url, repository] = GITHOSTED_KEY.exec(key) ?? [];
+    const [, , url, repository] = GITHOSTED_KEY.exec(key) ?? [];
     const isOwn = url !== undefined && EXACT_VERSION.test(version);
     return faultHits(file, ['packages', key, 'version'], version, isOwn ? undefined : strayVersion(repository));
 };

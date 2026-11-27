@@ -8,9 +8,10 @@
  * peerRangeFault: a package's own peer range, with the commit it pins.
  *
  * A value passes only as a registry version or range, an npm: alias, workspace:, catalog:, a
- * link: to a folder the repository tracks, or a full commit of a repository of REPOSITORIES.
+ * link: to a folder the repository tracks, or a full commit of a repository of GIT_SOURCES; each
+ * pin carries the name it stands under, which settledHits binds to the checked repository's entry.
  *
- * @example const fault = await specifierFault(value, { base: folderOf(path), kindOf });
+ * @example const fault = await specifierFault(value, { base: folderOf(path), kindOf }, name);
  */
 import {
   ALIAS,
@@ -30,9 +31,9 @@ import type { Fault, Where } from './types.ts';
 
 // Why a dependency value is no registry, workspace, catalog, in-repo or pinned source; undefined
 // when it is one.
-export const specifierFault = async (value: string, where: Where): Promise<Fault> => {
+export const specifierFault = async (value: string, where: Where, name: string): Promise<Fault> => {
   const [, repository, sha] = PINNED.exec(value) ?? [];
-  if (repository !== undefined && sha !== undefined) return { pins: [{ repository, sha }] };
+  if (repository !== undefined && sha !== undefined) return { pins: [{ name, repository, sha }] };
   if (value.startsWith('link:')) return linkFault(value.slice('link:'.length), where);
   if (value.startsWith('workspace:'))
     return WORKSPACE.test(value.slice('workspace:'.length)) ? undefined : UNKNOWN_FORM;
@@ -57,25 +58,26 @@ export const versionFault = async (
   specifier: string,
   where: Where,
   tarballPeers: RegExp,
+  name: string,
 ): Promise<Fault> => {
   const pinned = PINNED.exec(specifier);
   const hosted = HOSTED.exec(value);
   if (pinned !== null || hosted !== null) {
     // one of the two is set here, so one left unset never matches the other
     const isSamePin = pinned?.[1] === hosted?.[1] && pinned?.[2] === hosted?.[2];
-    if (isSamePin) return resolvedFault(value, VERSION_HEADS, tarballPeers);
+    if (isSamePin) return resolvedFault(value, VERSION_HEADS, tarballPeers, name);
     return otherCommit(pinned?.[1] ?? hosted?.[1] ?? '');
   }
   if (value.startsWith('link:')) return linkFault(value.slice('link:'.length), where);
-  return resolvedFault(value, VERSION_HEADS, tarballPeers);
+  return resolvedFault(value, VERSION_HEADS, tarballPeers, name);
 };
 
-// A package's own peer range of PEER_RANGE, with the commit it pins, if any.
-export const peerRangeFault = (value: string): Fault => {
+// A package's own peer range of PEER_RANGE, with the commit it pins under the peer's name, if any.
+export const peerRangeFault = (value: string, name: string): Fault => {
   if (PEER_RANGE.test(value) === false) return UNKNOWN_PEER;
   const [, repository, sha] = PINNED.exec(value) ?? [];
   if (repository === undefined || sha === undefined) return undefined;
-  return { pins: [{ repository, sha }] };
+  return { pins: [{ name, repository, sha }] };
 };
 
 /**
@@ -83,19 +85,21 @@ export const peerRangeFault = (value: string): Fault => {
  *
  * Its head is one of `heads`. A tarball peer stands only behind a tarball head, on the first
  * level as `tarballPeers` allows; behind a registry head every peer is a registry one. The
- * commits pass once GitHub places each on main.
+ * commits pass once GitHub places each on main. `head` is the name of a version's head, which
+ * the version does not hold; a key names its own.
  */
 export const resolvedFault = (
   value: string,
   heads: { hosted: RegExp; registry: RegExp },
   tarballPeers: RegExp,
+  head = '',
 ): Fault => {
   const isHosted = heads.hosted.test(value);
   const fits = isHosted
     ? isResolved(value, heads.hosted, tarballPeers)
     : isResolved(value, heads.registry);
   if (fits === false) return UNKNOWN_FORM;
-  const pins = pinsOf(value);
+  const pins = pinsOf(value, head);
   return pins.length === 0 ? undefined : { pins };
 };
 

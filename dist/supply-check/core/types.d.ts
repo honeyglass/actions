@@ -13,6 +13,7 @@ export type Context = {
     kindOf: Supply['kindOf'];
 };
 export type Pin = {
+    name: string;
     repository: string;
     sha: string;
 };

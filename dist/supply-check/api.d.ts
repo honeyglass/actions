@@ -3,6 +3,7 @@
  *
  * supplyHits: the forms the staged dependency files and symlinks hold that the check refuses.
  * isSupplyFile, isAttributesFile: whether the check reads a file, and whether git reads attributes from it.
+ * isInModules: whether a path in a node_modules folder refuses a file, whose blob then goes unread.
  * CONVERSIONS, conversionHits: the attributes that convert a file in the worktree, and their hits.
  * entriesOf, hitLine, shownPath: git's listing as entries, a hit as one line, a path as shown.
  * TEMPLATE, FETCH_MS: lean-code's template, and how long GitHub's answer may take.
@@ -10,10 +11,10 @@
  * Functions over the texts of the files a commit stages; the caller reads them from git, answers
  * what a path of the tree is and, in CI alone, lends its network. It is an allow-list: a dependency
  * value passes only as a registry version or range, an npm: alias, workspace:, catalog:, a link: to
- * a folder the repository tracks, or a full commit of github:honeyglass/utils or
- * github:honeyglass/adx on the main branch of that repository, one commit per repository,
- * and a pnpm setting only as lean-code's template sets it, widened by the exceptions the
- * person approved for the repository. Every other form fails, so one pnpm adds later is
+ * a folder the repository tracks, or a full commit of a git source the repository's entry in
+ * GIT_SOURCES binds to the name it stands under, on the main branch of that source, one commit
+ * per source, and a pnpm setting only as lean-code's template sets it, widened by the exceptions
+ * the person approved for the repository. Every other form fails, so one pnpm adds later is
  * refused.
  *
  * @example const hits = await supplyHits({ staged, deleted: [], kindOf, repository, formOnly: true })
@@ -22,6 +23,7 @@ import { shown as shownPath } from '@honeyglass/utils/ts';
 import type { Refusal } from '@honeyglass/utils/ts';
 import type { Entry, Supply, SupplyHit } from './types.ts';
 export { FETCH_MS } from './core/github.ts';
+export { isInModules } from './core/files.ts';
 export { TEMPLATE } from './core/template.ts';
 /**
  * Whether the check reads a staged file: a symlink, a path in a node_modules folder, or a file pnpm

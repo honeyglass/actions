@@ -231,8 +231,15 @@ ${entry}
 const entryOf = (specifier: string, version: string) =>
   `      x:\n        specifier: ${specifier}\n        version: ${version}`;
 // a package.json whose dependency 'x' of `field` has the value
-const manifestWith = (value: string, field = 'dependencies') =>
-  JSON.stringify({ [field]: { x: value } });
+const manifestWith = (value: string, field = 'dependencies', name = 'x') =>
+  JSON.stringify({ [field]: { [name]: value } });
+// a package.json that names honeyglass/<repository> at `sha` under its own name, as a pin is bound
+const pinnedManifest = (repository: string, sha: string) =>
+  manifestWith(
+    `github:honeyglass/${repository}#${sha}`,
+    'dependencies',
+    `@honeyglass/${repository}`,
+  );
 // The paths the tree holds beside the staged files, by their git mode: two workspace packages, a
 // folder of scripts, a symlink 'up' that leads back to the top level, and a folder eslint-config.
 const TRACKED: Record<string, string> = {
@@ -244,6 +251,13 @@ const TRACKED: Record<string, string> = {
 };
 // a token's shape, built at run time, so no secret scanner meets one in this file
 const TOKEN = `npm_${'x'.repeat(36)}`;
+
+// The repository whose entry of the git sources binds @honeyglass/utils and @honeyglass/adx, the
+// two every pinning row names, so a row tests the form and not the binding unless it says so.
+const PINNING = 'honeyglass/oriko';
+// the reason of a git source PINNING's entry does not bind to the name it stands under
+const UNBOUND_PINNING =
+  'a git source this repository may not use under this name; it may use @honeyglass/utils from github:honeyglass/utils and @honeyglass/adx from github:honeyglass/adx alone';
 
 type Row = {
   what: string;
@@ -283,6 +297,10 @@ const ADX_FORK = 'c'.repeat(40);
 const ADX_CODELOAD = 'https://codeload.github.com/honeyglass/adx/tar.gz/';
 const ADX_COMPARE = 'https://api.github.com/repos/honeyglass/adx/compare/main...';
 const SOMEONE_CODELOAD = 'https://codeload.github.com/someone/utils/tar.gz/';
+// main's head of honeyglass/actions, which lean-code's entry alone binds, to @honeyglass/actions
+const ACTIONS_HEAD = '4'.repeat(40);
+const ACTIONS_CODELOAD = 'https://codeload.github.com/honeyglass/actions/tar.gz/';
+const ACTIONS_COMPARE = 'https://api.github.com/repos/honeyglass/actions/compare/main...';
 // The reasons whose repository a row checks: the one the value is about, or every allowed one.
 const OFF_ADX_MAIN =
   "a commit GitHub's API does not place on the main branch of honeyglass/adx, such as a fork's, which GitHub serves under the repository's URL too";
@@ -291,9 +309,9 @@ const OFF_UTILS_MAIN =
 const OTHER_ADX_COMMIT =
   'a version and a specifier that do not name the same commit of github:honeyglass/adx';
 const UNKNOWN_FORM =
-  'neither a registry version or range, an npm: alias, workspace:, catalog:, a link: inside the repository nor a full commit of github:honeyglass/utils or github:honeyglass/adx';
+  'neither a registry version or range, an npm: alias, workspace:, catalog:, a link: inside the repository nor a full commit of a git source';
 const UNKNOWN_PEER =
-  'neither registry ranges and dist-tags, an npm: alias to a registry range nor a full commit of github:honeyglass/utils or github:honeyglass/adx';
+  'neither registry ranges and dist-tags, an npm: alias to a registry range nor a full commit of a git source';
 const UNKNOWN_NAME = 'no npm package name, of which pnpm makes a folder below node_modules';
 const WEAK_INTEGRITY = 'no sha512 integrity, by which pnpm checks the bytes it fetched';
 // a lockfile of one registry package whose own peer range on `name` is `range`
@@ -314,6 +332,7 @@ const COMPARED: Record<string, string> = {
   [`${COMPARE}${AHEAD}`]: '{"status":"ahead","ahead_by":1,"behind_by":0}',
   [`${ADX_COMPARE}${ADX_HEAD}`]: '{"status":"identical","ahead_by":0,"behind_by":0}',
   [`${ADX_COMPARE}${ADX_FORK}`]: '{"status":"diverged","ahead_by":1,"behind_by":2}',
+  [`${ACTIONS_COMPARE}${ACTIONS_HEAD}`]: '{"status":"identical","ahead_by":0,"behind_by":0}',
 };
 // a wait that never ends, so every fetch answers before the deadline
 const idle = () => new Promise<void>(() => {});
@@ -457,7 +476,7 @@ const hitsOf = ({
   files,
   modes = {},
   deleted = [],
-  repository,
+  repository = PINNING,
   fetch = github,
   sleep = idle,
   token,
@@ -476,13 +495,14 @@ const hitsOf = ({
     token,
   });
 
-// the hits as lean-code's commit tool and make-repo ask them, without GitHub's API
-const localHitsOf = (files: Record<string, string>) =>
+// the hits as a commit tool asks them, without GitHub's API, for PINNING unless a row names
+// another repository
+const localHitsOf = (files: Record<string, string>, repository: string | undefined = PINNING) =>
   supplyHits({
     staged: Object.entries(files).map(([path, text]) => ({ path, mode: '100644', text })),
     deleted: [],
     kindOf,
-    repository: undefined,
+    repository,
     formOnly: true,
   });
 
@@ -572,7 +592,7 @@ const passing: Omit<Row, 'hits'>[] = [
   },
   {
     what: 'a dependency on a commit that lies on the main branch of honeyglass/utils',
-    files: { 'package.json': manifestWith(`github:honeyglass/utils#${BEHIND}`) },
+    files: { 'package.json': pinnedManifest('utils', BEHIND) },
   },
   {
     what: "a lockfile that pins honeyglass/utils at main's head",
@@ -580,7 +600,7 @@ const passing: Omit<Row, 'hits'>[] = [
   },
   {
     what: 'a dependency on a commit that lies on the main branch of honeyglass/adx',
-    files: { 'package.json': manifestWith(`github:honeyglass/adx#${ADX_HEAD}`) },
+    files: { 'package.json': pinnedManifest('adx', ADX_HEAD) },
   },
   {
     what: "honeyglass/adx at main's head with its peers on honeyglass/utils and zod",
@@ -595,12 +615,11 @@ const passing: Omit<Row, 'hits'>[] = [
         '>= 5.0.0-beta.1 < 6',
         '*',
         'x',
-        `github:honeyglass/utils#${HEAD}`,
         'npm:typescript@>=7.1.0-dev.20261009.1 || >=7.1.0-beta <7.1.0-dev',
         'npm:@scope/pkg@^1.2.3',
       ]
         .map((range, i) => `      p${i}: '${range}'\n`)
-        .join('')}`,
+        .join('')}      '@honeyglass/utils': 'github:honeyglass/utils#${HEAD}'\n`,
     },
   },
   {
@@ -1473,7 +1492,7 @@ const refused: Row[] = [
     hits: [{ field: 'dependencies.x', value: `"${'b'.repeat(60)}https://***@h/"` }],
   },
   // pnpm installs a package's peer from its range where the peer is missing, so only registry
-  // ranges, dist-tags and a pinned commit of REPOSITORIES pass
+  // ranges, dist-tags and a pinned commit of a repository of GIT_SOURCES pass
   ...[
     `github:someone/evil#${HEAD}`,
     'git+https://github.com/someone/evil.git',
@@ -1638,7 +1657,7 @@ describe('a hit as one line', () => {
 
 // a manifest and a lockfile that pin main's head
 const PINNED = {
-  'package.json': manifestWith(`github:honeyglass/utils#${HEAD}`),
+  'package.json': pinnedManifest('utils', HEAD),
   'pnpm-lock.yaml': pinnedLockfile(HEAD),
 };
 
@@ -1667,9 +1686,8 @@ const recorded = (answer: Fetch = github) => {
   return { asked, fetch };
 };
 
-// adxLockfile with rxjs' tslib at utils' tarball at `sha`. The check binds no package name to
-// a repository (honeyglass/actions TODO.md #1), so the form passes; the commit still counts
-// as one of honeyglass/utils.
+// adxLockfile with rxjs' tslib at utils' tarball at `sha`: a git source under a name that no
+// entry of the git sources binds to honeyglass/utils.
 const renamedTarball = (sha: string) =>
   adxLockfile(ADX_HEAD).replace('      tslib: 2.9.1\n', `      tslib: ${CODELOAD}${sha}\n`);
 
@@ -1760,27 +1778,21 @@ describe('the supply check asking GitHub whether a pinned commit lies on main', 
     ]);
   });
 
-  test("asks GitHub of utils' tarball that a snapshot dependency names under another name", async () => {
+  test("refuses utils' tarball that a snapshot dependency names under another name, asking GitHub of the bound pins alone", async () => {
     const { asked, fetch } = recorded();
-    assert.deepEqual(
-      await hitsOf({ files: { 'pnpm-lock.yaml': renamedTarball(HEAD) }, fetch }),
-      [],
-    );
+    assertHits(await hitsOf({ files: { 'pnpm-lock.yaml': renamedTarball(HEAD) }, fetch }), [
+      { field: 'snapshots."rxjs@7.8.2".dependencies.tslib', reason: UNBOUND_PINNING },
+    ]);
     assert.deepEqual(
       asked.map(({ url }) => url),
       [`${ADX_COMPARE}${ADX_HEAD}`, `${COMPARE}${HEAD}`],
     );
   });
 
-  test("refuses utils' second commit that a snapshot dependency names under another name", async () => {
-    const reason = `one of 2 commits of honeyglass/utils pinned at once, and a check passes one per repository`;
-    assertHits(
-      await hitsOf({ files: { 'pnpm-lock.yaml': renamedTarball(BEHIND) } }),
-      [...peerFields(ADX_HEAD, HEAD), 'snapshots."rxjs@7.8.2".dependencies.tslib'].map(field => ({
-        field,
-        reason,
-      })),
-    );
+  test("refuses utils' second commit under another name by its name, which counts no commit", async () => {
+    assertHits(await hitsOf({ files: { 'pnpm-lock.yaml': renamedTarball(BEHIND) } }), [
+      { field: 'snapshots."rxjs@7.8.2".dependencies.tslib', reason: UNBOUND_PINNING },
+    ]);
   });
 
   test("refuses as GitHub's refusal when GitHub fails for both repositories", async () => {
@@ -1806,11 +1818,11 @@ describe('the supply check asking GitHub whether a pinned commit lies on main', 
   test('refuses two pinned commits at once at every field that names one, asking GitHub nothing', async () => {
     const { asked, fetch } = recorded();
     const files = {
-      'package.json': manifestWith(`github:honeyglass/utils#${HEAD}`),
+      'package.json': pinnedManifest('utils', HEAD),
       'pnpm-lock.yaml': pinnedLockfile(BEHIND),
     };
     assertHits(await hitsOf({ files, fetch }), [
-      { file: 'package.json', field: 'dependencies.x' },
+      { file: 'package.json', field: 'dependencies.@honeyglass/utils' },
       ...pinnedFields(BEHIND).map(field => ({ file: 'pnpm-lock.yaml', field })),
     ]);
     assert.deepEqual(asked, []);
@@ -1884,7 +1896,7 @@ describe("the supply check without GitHub's API, as the commit tool and make-rep
   ] as const) {
     test(`passes a pin of ${what} on its form alone`, async () => {
       const files = {
-        'package.json': manifestWith(`github:honeyglass/utils#${sha}`),
+        'package.json': pinnedManifest('utils', sha),
         'pnpm-lock.yaml': pinnedLockfile(sha),
       };
       assert.deepEqual(await localHitsOf(files), []);
@@ -1899,25 +1911,26 @@ describe("the supply check without GitHub's API, as the commit tool and make-rep
   // now, so a bound of one second fails only for the old forms.
   test('refuses 32000 distinct commits of honeyglass/utils at their fields within a second', async () => {
     const shas = Array.from({ length: 32_000 }, (_, i) => i.toString(16).padStart(40, '0'));
-    const pins = Object.fromEntries(
-      shas.map((sha, i) => [`p${i}`, `github:honeyglass/utils#${sha}`]),
+    // a manifest of its own per commit, each naming utils by its own name, so every pin is bound
+    const files = Object.fromEntries(
+      shas.map((sha, i) => [`p/${i}/package.json`, pinnedManifest('utils', sha)]),
     );
     const reason =
       'one of 32000 commits of honeyglass/utils pinned at once, and a check passes one per repository';
-    const manifest = JSON.stringify({ dependencies: pins });
     const started = Date.now();
-    const hits = await localHitsOf({ 'package.json': manifest });
+    const hits = await localHitsOf(files);
     const took = Date.now() - started;
     assertHits(
       hits,
       shas.map((sha, i) => ({
-        field: `dependencies.p${i}`,
+        file: `p/${i}/package.json`,
+        field: 'dependencies.@honeyglass/utils',
         value: `"github:honeyglass/utils#${sha}"`,
         reason,
       })),
     );
     // each line holds its own field, value and the count, so k fields print k short lines
-    assert.ok(Array.isArray(hits) && hits.every(hit => hitLine(hit).length < 200));
+    assert.ok(Array.isArray(hits) && hits.every(hit => hitLine(hit).length < 250));
     assert.ok(took < 1000, `took ${took} ms`);
   });
 
@@ -1951,8 +1964,10 @@ describe("the supply check without GitHub's API, as the commit tool and make-rep
     assert.deepEqual(await localHitsOf(files), []);
   });
 
-  test("passes utils' tarball that a snapshot dependency names under another name on its form alone", async () => {
-    assert.deepEqual(await localHitsOf({ 'pnpm-lock.yaml': renamedTarball(HEAD) }), []);
+  test("refuses utils' tarball that a snapshot dependency names under another name on its form alone", async () => {
+    assertHits(await localHitsOf({ 'pnpm-lock.yaml': renamedTarball(HEAD) }), [
+      { field: 'snapshots."rxjs@7.8.2".dependencies.tslib', reason: UNBOUND_PINNING },
+    ]);
   });
 
   for (const { what, files, hits } of [
@@ -1979,11 +1994,11 @@ describe("the supply check without GitHub's API, as the commit tool and make-rep
     {
       what: 'two pinned commits',
       files: {
-        'package.json': manifestWith(`github:honeyglass/utils#${HEAD}`),
+        'package.json': pinnedManifest('utils', HEAD),
         'pnpm-lock.yaml': pinnedLockfile(BEHIND),
       },
       hits: [
-        { file: 'package.json', field: 'dependencies.x' },
+        { file: 'package.json', field: 'dependencies.@honeyglass/utils' },
         ...pinnedFields(BEHIND).map(field => ({ file: 'pnpm-lock.yaml', field })),
       ],
     },
@@ -2002,11 +2017,11 @@ describe("the supply check without GitHub's API, as the commit tool and make-rep
     {
       what: 'two pinned commits of honeyglass/adx',
       files: {
-        'package.json': manifestWith(`github:honeyglass/adx#${ADX_HEAD}`),
+        'package.json': pinnedManifest('adx', ADX_HEAD),
         'pnpm-lock.yaml': adxLockfile(ADX_FORK),
       },
       hits: [
-        { file: 'package.json', field: 'dependencies.x', reason: TWO_ADX },
+        { file: 'package.json', field: 'dependencies.@honeyglass/adx', reason: TWO_ADX },
         ...adxFields(ADX_FORK).map(field => ({ file: 'pnpm-lock.yaml', field, reason: TWO_ADX })),
       ],
     },
@@ -2023,12 +2038,12 @@ describe("the supply check without GitHub's API, as the commit tool and make-rep
       {
         path: 'package.json',
         mode: '100644',
-        text: manifestWith(`github:honeyglass/utils#${FORK}`),
+        text: pinnedManifest('utils', FORK),
       },
     ],
     deleted: [],
     kindOf,
-    repository: undefined,
+    repository: PINNING,
   };
   const lost: Record<string, () => ReturnType<typeof supplyHits>> = {
     // @ts-expect-error neither GitHub's API nor formOnly
@@ -2200,3 +2215,207 @@ describe("a URL's user info in a hit's value", () => {
     });
   }
 });
+
+// The reasons of a git source a repository's entry does not bind to the name it stands under.
+const UNBOUND_LEAN_CODE =
+  'a git source this repository may not use under this name; it may use @honeyglass/utils from github:honeyglass/utils and @honeyglass/actions from github:honeyglass/actions alone';
+const UNBOUND_ADX =
+  'a git source this repository may not use under this name; it may use @honeyglass/utils from github:honeyglass/utils alone';
+const NO_SOURCE = 'a git source, of which this repository may use none';
+// a manifest of `name` at `source`'s commit `sha`, in `field`
+const sourced = (name: string, source: string, sha: string, field = 'dependencies') =>
+  JSON.stringify({ [field]: { [name]: `github:${source}#${sha}` } });
+
+describe('the git sources a repository may use, each bound to its package name', () => {
+  test("passes lean-code's two git sources, each under its own name, asking GitHub of each", async () => {
+    const { asked, fetch } = recorded();
+    const files = {
+      'package.json': JSON.stringify({
+        dependencies: {
+          '@honeyglass/utils': `github:honeyglass/utils#${HEAD}`,
+          '@honeyglass/actions': `github:honeyglass/actions#${ACTIONS_HEAD}`,
+        },
+      }),
+    };
+    assert.deepEqual(await hitsOf({ files, fetch, repository: 'honeyglass/lean-code' }), []);
+    assert.deepEqual(
+      asked.map(({ url }) => url),
+      [`${COMPARE}${HEAD}`, `${ACTIONS_COMPARE}${ACTIONS_HEAD}`],
+    );
+  });
+
+  // An unbound pin neither reaches GitHub nor counts toward a repository's one commit.
+  for (const { what, repository, dependencies, hits, urls } of [
+    {
+      what: 'a bound pin alone, which GitHub is asked about',
+      repository: 'honeyglass/actions',
+      dependencies: { '@honeyglass/utils': `github:honeyglass/utils#${HEAD}` },
+      hits: [],
+      urls: [`${COMPARE}${HEAD}`],
+    },
+    {
+      what: 'an unbound pin alone, which GitHub is not asked about at all',
+      repository: 'honeyglass/actions',
+      dependencies: { '@honeyglass/adx': `github:honeyglass/adx#${ADX_HEAD}` },
+      hits: [{ field: 'dependencies.@honeyglass/adx', reason: UNBOUND_ADX }],
+      urls: [],
+    },
+    {
+      what: 'a bound and an unbound pin of one repository at two commits, GitHub asked of the bound one',
+      repository: PINNING,
+      dependencies: {
+        '@honeyglass/utils': `github:honeyglass/utils#${HEAD}`,
+        rxjs: `github:honeyglass/utils#${BEHIND}`,
+      },
+      hits: [{ field: 'dependencies.rxjs', reason: UNBOUND_PINNING }],
+      urls: [`${COMPARE}${HEAD}`],
+    },
+  ]) {
+    test(`asks GitHub exactly of the bound pins for ${what}`, async () => {
+      const { asked, fetch } = recorded();
+      const files = { 'package.json': JSON.stringify({ dependencies }) };
+      assertHits(await hitsOf({ files, fetch, repository }), hits);
+      assert.deepEqual(
+        asked.map(({ url }) => url),
+        urls,
+      );
+    });
+  }
+
+  for (const { what, repository, files, hits } of [
+    {
+      what: 'utils under the name rxjs in a package.json',
+      repository: PINNING,
+      files: { 'package.json': sourced('rxjs', 'honeyglass/utils', HEAD) },
+      hits: [{ field: 'dependencies.rxjs', reason: UNBOUND_PINNING }],
+    },
+    {
+      what: 'utils under the name rxjs in an importer, by its specifier and its version',
+      repository: PINNING,
+      files: {
+        'pnpm-lock.yaml': `lockfileVersion: '9.0'\n\nimporters:\n\n  .:\n    dependencies:\n      rxjs:\n        specifier: github:honeyglass/utils#${HEAD}\n        version: ${CODELOAD}${HEAD}\n`,
+      },
+      hits: [
+        { field: 'importers.".".dependencies.rxjs.specifier', reason: UNBOUND_PINNING },
+        { field: 'importers.".".dependencies.rxjs.version', reason: UNBOUND_PINNING },
+      ],
+    },
+    {
+      what: 'utils under the name rxjs in a packages key and its tarball',
+      repository: PINNING,
+      files: {
+        'pnpm-lock.yaml': `lockfileVersion: '9.0'\n\npackages:\n\n  'rxjs@${CODELOAD}${HEAD}':\n    resolution: {gitHosted: true, integrity: ${sri('A')}, tarball: ${CODELOAD}${HEAD}}\n    version: 7.8.2\n`,
+      },
+      hits: [
+        { field: `packages.${JSON.stringify(`rxjs@${CODELOAD}${HEAD}`)}`, reason: UNBOUND_PINNING },
+        {
+          field: `packages.${JSON.stringify(`rxjs@${CODELOAD}${HEAD}`)}.resolution.tarball`,
+          reason: UNBOUND_PINNING,
+        },
+      ],
+    },
+    {
+      what: 'utils under the name rxjs in a snapshot key',
+      repository: PINNING,
+      files: {
+        'pnpm-lock.yaml': `lockfileVersion: '9.0'\n\nsnapshots:\n\n  'rxjs@${CODELOAD}${HEAD}': {}\n`,
+      },
+      hits: [
+        {
+          field: `snapshots.${JSON.stringify(`rxjs@${CODELOAD}${HEAD}`)}`,
+          reason: UNBOUND_PINNING,
+        },
+      ],
+    },
+    {
+      what: "utils under the name rxjs in the peer suffix of adx's version and snapshot key",
+      repository: PINNING,
+      files: {
+        'pnpm-lock.yaml': adxLockfile(ADX_HEAD).replaceAll(
+          `(@honeyglass/utils@${CODELOAD}${HEAD})`,
+          `(rxjs@${CODELOAD}${HEAD})`,
+        ),
+      },
+      hits: [
+        { field: adxFields(ADX_HEAD)[1], reason: UNBOUND_PINNING },
+        {
+          field: `snapshots.${JSON.stringify(`@honeyglass/adx@${ADX_CODELOAD}${ADX_HEAD}(rxjs@${CODELOAD}${HEAD})(zod@4.6.5)`)}`,
+          reason: UNBOUND_PINNING,
+        },
+      ],
+    },
+    {
+      what: "utils as a package's peer range under the name rxjs",
+      repository: PINNING,
+      files: { 'pnpm-lock.yaml': peerLockfile(`github:honeyglass/utils#${HEAD}`, 'rxjs') },
+      hits: [{ field: 'packages."foo@1.0.0".peerDependencies.rxjs', reason: UNBOUND_PINNING }],
+    },
+    {
+      what: 'utils under the name of the other listed source, @honeyglass/adx',
+      repository: PINNING,
+      files: { 'package.json': sourced('@honeyglass/adx', 'honeyglass/utils', HEAD) },
+      hits: [{ field: 'dependencies.@honeyglass/adx', reason: UNBOUND_PINNING }],
+    },
+    {
+      what: 'actions under its own name in oriko, whose entry does not hold it',
+      repository: PINNING,
+      files: { 'package.json': sourced('@honeyglass/actions', 'honeyglass/actions', ACTIONS_HEAD) },
+      hits: [{ field: 'dependencies.@honeyglass/actions', reason: UNBOUND_PINNING }],
+    },
+    {
+      what: "actions under utils' name in lean-code, whose entry holds both",
+      repository: 'honeyglass/lean-code',
+      files: { 'package.json': sourced('@honeyglass/utils', 'honeyglass/actions', ACTIONS_HEAD) },
+      hits: [{ field: 'dependencies.@honeyglass/utils', reason: UNBOUND_LEAN_CODE }],
+    },
+    {
+      what: 'adx under its own name in adx, whose entry holds utils alone',
+      repository: 'honeyglass/adx',
+      files: { 'package.json': sourced('@honeyglass/adx', 'honeyglass/adx', ADX_HEAD) },
+      hits: [{ field: 'dependencies.@honeyglass/adx', reason: UNBOUND_ADX }],
+    },
+    {
+      what: 'utils under a resolutions selector, whose key is no name the entry holds',
+      repository: PINNING,
+      files: {
+        'package.json': sourced('a>@honeyglass/utils', 'honeyglass/utils', HEAD, 'resolutions'),
+      },
+      hits: [{ field: 'resolutions."a>@honeyglass/utils"', reason: UNBOUND_PINNING }],
+    },
+    ...[undefined, 'honeyglass/blog', 'Honeyglass/oriko', 'honeyglass/oriko '].map(repository => ({
+      what: `utils under its own name for ${JSON.stringify(repository) ?? 'no repository'}, which may use none`,
+      repository,
+      files: { 'package.json': pinnedManifest('utils', HEAD) },
+      hits: [{ field: 'dependencies.@honeyglass/utils', reason: NO_SOURCE }],
+    })),
+  ]) {
+    test(`refuses ${what}, asking GitHub of no repository the entry does not bind`, async () => {
+      const { asked, fetch } = recorded();
+      assertHits(
+        await supplyHits({
+          staged: Object.entries(files).map(([path, text]) => ({ path, mode: '100644', text })),
+          deleted: [],
+          kindOf,
+          repository,
+          fetch,
+          sleep: idle,
+          token: undefined,
+        }),
+        hits,
+      );
+      const bound = repository === undefined ? undefined : GIT_REPOSITORIES[repository];
+      assert.ok(
+        asked.every(({ url }) => bound?.some(source => url.includes(`/repos/${source}/`)) === true),
+        JSON.stringify(asked.map(({ url }) => url)),
+      );
+    });
+  }
+});
+
+// the repositories each entry of the git sources may pin, as the person listed them
+const GIT_REPOSITORIES: Record<string, string[]> = {
+  'honeyglass/lean-code': ['honeyglass/utils', 'honeyglass/actions'],
+  'honeyglass/oriko': ['honeyglass/utils', 'honeyglass/adx'],
+  'honeyglass/adx': ['honeyglass/utils'],
+  'honeyglass/actions': ['honeyglass/utils'],
+};

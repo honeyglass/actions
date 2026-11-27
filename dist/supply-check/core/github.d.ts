@@ -7,9 +7,12 @@ export declare const FETCH_MS = 30000;
  * The hits once GitHub placed each pinned commit on main or not: a field drops when main holds
  * every commit it names.
  *
+ * A pin passes only under a name the checked repository's entry binds to the repository it pins;
+ * a field with any other pin is refused by that alone, and GitHub is asked about no repository
+ * the entry does not name.
  * A check passes one commit per repository, so a repository pinned at two is refused before
  * GitHub is asked about it, and the requests stay one per repository. GitHub's refusal stands
  * only where no other hit does, so those come first. With formOnly the pins' fields drop
  * unasked, as their form passed; a fetch beside it is asked.
  */
-export declare const settledHits: (found: Found[], github: GitHub | FormOnly) => Promise<SupplyHit[] | Refusal>;
+export declare const settledHits: (found: Found[], github: GitHub | FormOnly, repository: string | undefined) => Promise<SupplyHit[] | Refusal>;

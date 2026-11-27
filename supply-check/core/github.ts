@@ -2,19 +2,21 @@
  * Whether GitHub's API places each pinned commit on the main branch of the repository it pins.
  *
  * FETCH_MS: how long the check waits for GitHub's answer.
- * settledHits: the hits once GitHub answered, or why it left a pin unchecked.
+ * settledHits: the hits once each pin's name was bound and GitHub answered, or why GitHub left
+ * a pin unchecked.
  *
  * GitHub serves a fork's commit under the URL of the repository too, so only main's history
  * proves a pin. Every answer but "on main" or "unknown commit" refuses, so none passes unasked.
  *
- * @example return settledHits([...removed, ...hits.flat()], github);
+ * @example return settledHits([...removed, ...hits.flat()], github, repository);
  */
 import { $try, isRefusal, parseJson } from '@honeyglass/utils/ts';
 import type { Refusal } from '@honeyglass/utils/ts';
 import type { FormOnly, GitHub, SupplyHit } from '../types.ts';
 import { AnswerSchema, CompareSchema } from './supply.schema.ts';
 import type { Answer } from './supply.schema.ts';
-import { offMain } from './reasons.ts';
+import { sourcesOf } from './grammar.ts';
+import { offMain, unboundSource } from './reasons.ts';
 import type { Found, Pin } from './types.ts';
 
 /** Thirty seconds for GitHub's answer, so an API that hangs refuses the check instead of holding it. */
@@ -26,6 +28,9 @@ const STEP = 'supply check';
  * The hits once GitHub placed each pinned commit on main or not: a field drops when main holds
  * every commit it names.
  *
+ * A pin passes only under a name the checked repository's entry binds to the repository it pins;
+ * a field with any other pin is refused by that alone, and GitHub is asked about no repository
+ * the entry does not name.
  * A check passes one commit per repository, so a repository pinned at two is refused before
  * GitHub is asked about it, and the requests stay one per repository. GitHub's refusal stands
  * only where no other hit does, so those come first. With formOnly the pins' fields drop
@@ -34,17 +39,20 @@ const STEP = 'supply check';
 export const settledHits = async (
   found: Found[],
   github: GitHub | FormOnly,
+  repository: string | undefined,
 ): Promise<SupplyHit[] | Refusal> => {
-  const commits = commitsOf(found.flatMap(({ pins = [] }) => pins));
+  const sources = sourcesOf(repository);
+  const isBound = (pin: Pin) => sources.get(pin.name) === pin.repository;
+  const commits = commitsOf(found.flatMap(({ pins = [] }) => pins.filter(isBound)));
   const verdicts = new Map(
     await Promise.all(
       [...commits].map(
-        async ([repository, shas]) =>
-          [repository, await verdictOf(repository, shas, github)] as const,
+        async ([source, shas]) => [source, await verdictOf(source, shas, github)] as const,
       ),
     ),
   );
-  const hits = found.flatMap(hit => settled(hit, verdicts));
+  const unbound = unboundSource(sources);
+  const hits = found.flatMap(hit => settled(hit, verdicts, isBound, unbound));
   const [unchecked] = [...verdicts.values()].filter(isRefusal);
   return hits.length === 0 && unchecked !== undefined ? unchecked : hits;
 };
@@ -78,10 +86,17 @@ const verdictOf = async (
   return answer ? true : offMain(repository);
 };
 
-// A field as the verdicts of its repositories leave it: a hit with the first reason, if
-// any, and gone once each passed or went unchecked.
-const settled = ({ file, field, value, reason, pins }: Found, verdicts: Map<string, Verdict>) => {
+// A field as the binding and the verdicts of its repositories leave it: refused by a pin its name
+// does not bind, else a hit with the first reason, if any, and gone once each passed or went
+// unchecked.
+const settled = (
+  { file, field, value, reason, pins }: Found,
+  verdicts: Map<string, Verdict>,
+  isBound: (pin: Pin) => boolean,
+  unbound: string,
+) => {
   if (pins === undefined) return [{ file, field, value, reason }];
+  if (pins.every(isBound) === false) return [{ file, field, value, reason: unbound }];
   const failed = pins
     .map(({ repository }) => verdicts.get(repository))
     .find(verdict => typeof verdict === 'string');

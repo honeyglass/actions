@@ -196,14 +196,68 @@ describe('the staged command', () => {
     assert.equal(answer.status, 1);
   });
 
-  test('passes a pinned commit of honeyglass/utils on its form alone, asking GitHub nothing', () => {
+  test('passes a pinned commit of honeyglass/utils on its form alone for a repository whose entry binds it, asking GitHub nothing', () => {
     const fork = 'f'.repeat(40);
     const pinned = `{ "dependencies": { "@honeyglass/utils": "github:honeyglass/utils#${fork}" } }\n`;
     const dir = repo({ 'package.json': pinned });
-    const answer = staged(dir, ['--no-repository', '--', 'package.json'], {
+    const answer = staged(dir, ['honeyglass/adx', '--', 'package.json'], {
       GITHUB_TOKEN: 'ghs_x',
     });
     assert.deepEqual(answer, { status: 0, lines: [], stderr: '' });
+  });
+
+  // the same pin, the same name: a repository the list does not name, or none, may use no git source
+  for (const args of [['--no-repository'], ['honeyglass/blog'], ['Honeyglass/adx']]) {
+    test(`refuses a pinned commit of honeyglass/utils as no git source of ${args[0] ?? ''}`, () => {
+      const pinned = `{ "dependencies": { "@honeyglass/utils": "github:honeyglass/utils#${'f'.repeat(40)}" } }\n`;
+      const dir = repo({ 'package.json': pinned });
+      assert.deepEqual(staged(dir, [...args, '--', 'package.json']), {
+        status: 1,
+        lines: [
+          {
+            file: 'package.json',
+            field: 'dependencies.@honeyglass/utils',
+            value: `"github:honeyglass/utils#${'f'.repeat(40)}"`,
+            reason: 'a git source, of which this repository may use none',
+          },
+        ],
+        stderr: '',
+      });
+    });
+  }
+
+  // git lists a submodule with no blob, so a read of it fails, and only the path can answer
+  for (const path of ['vendor/node_modules/sub', 'pkg/Node_Modules/sub']) {
+    test(`refuses ${path}, a submodule in a node_modules folder, by its path, reading no blob of it`, () => {
+      const dir = repo({ 'package.json': CLEAN });
+      git(dir, 'update-index', '--add', '--cacheinfo', `160000,${'1'.repeat(40)},${path}`);
+      assert.deepEqual(staged(dir, ['--no-repository', '--', path]), {
+        status: 1,
+        lines: [
+          {
+            file: path,
+            field: '',
+            value: '',
+            reason:
+              'a path in a node_modules folder, from which Node loads packages and which only the install may fill',
+          },
+        ],
+        stderr: '',
+      });
+    });
+  }
+
+  test('reads the blob of a submodule outside node_modules, and refuses as git cannot read it', () => {
+    const dir = repo({ 'package.json': CLEAN });
+    git(
+      dir,
+      'update-index',
+      '--add',
+      '--cacheinfo',
+      `160000,${'1'.repeat(40)},vendor/package.json`,
+    );
+    const answer = staged(dir, ['--no-repository', '--', 'vendor/package.json']);
+    assert.equal(answer.status, 2);
   });
 
   test('answers exit 0 for no path at all', () => {

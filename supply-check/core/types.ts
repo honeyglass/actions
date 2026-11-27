@@ -11,9 +11,10 @@ import type { Staged, Supply, SupplyHit } from '../types.ts';
 
 // The settings a workspace may hold, and what a path of the tree is.
 export type Context = { settings: Record<string, unknown>; kindOf: Supply['kindOf'] };
-// A commit of a repository of REPOSITORIES that a field pins, which passes once GitHub
-// places it on that repository's main.
-export type Pin = { repository: string; sha: string };
+// A commit of a repository of GIT_SOURCES that a field pins under a package name, which passes
+// once the checked repository's entry binds the name to that repository and GitHub places the
+// commit on its main.
+export type Pin = { name: string; repository: string; sha: string };
 // Why a value does not pass, or the commits it pins; undefined when it passes.
 export type Fault = string | { pins: Pin[] } | undefined;
 // A hit, or a field that pins commits, which the check settles once every field is read.

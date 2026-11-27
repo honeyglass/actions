@@ -31,7 +31,7 @@ export const manifestHits: Check = async ({ path, text }, { kindOf }) => {
     Object.entries(manifest[field] ?? {}).map(([name, value]) => ({
       field: [field, name],
       value,
-      fault: (specifier: string) => specifierFault(specifier, where),
+      fault: (specifier: string) => specifierFault(specifier, where, name),
     })),
   );
   return [

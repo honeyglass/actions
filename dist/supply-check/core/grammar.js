@@ -3,11 +3,12 @@
  *
  * RANGE, ALIAS, WORKSPACE, CATALOG: a registry range, an npm: alias, workspace: and catalog:.
  * RESOLVED, PEER, PINNED_PEER, ALONE, isResolved: a resolved version with its peer suffixes.
- * REPOSITORIES: the GitHub repositories a git source may name, each in full.
- * PINNED, HOSTED, GITHOSTED_KEY, EXACT_VERSION: one of them at a full commit sha.
+ * GIT_SOURCES, sourcesOf: per checked repository, each package name and the repository it
+ * may pin.
+ * PINNED, HOSTED, GITHOSTED_KEY, EXACT_VERSION: a repository of them at a full commit sha.
  * VERSION_HEADS, KEY_HEADS: the heads of a resolved version and of a snapshot key.
  * PACKAGE_NAME, PEER_RANGE, INTEGRITY: a dependency's name, a package's peer range, its hash.
- * pinsOf: the commits a resolved version or key names by their tarballs.
+ * pinsOf: the commits a resolved version or key names by their tarballs, each with its name.
  *
  * Each is an allow-list: a value of any other form fails the check that reads it.
  *
@@ -63,25 +64,51 @@ const VERSION = '\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?';
 export const RESOLVED = new RegExp(`^(?:${NAME}@)?${VERSION}`);
 export const PEER = new RegExp(`^${NAME}@${VERSION}`);
 /**
- * The GitHub repositories whose commits a git source may pin, each named in full.
+ * The git sources each checked repository may use: a package name, and the GitHub repository
+ * whose full commit it may pin under that name, each named in full and matched as written.
  *
- * No owner and no pattern opens a third; only the person adds one.
+ * The checked repository is the one the caller names, as for the template's exceptions. One the
+ * list does not name may use no git source, nor may a check without a repository. The person
+ * approves this list; only the person adds to it.
  */
-export const REPOSITORIES = ['honeyglass/utils', 'honeyglass/adx'];
-// One of REPOSITORIES as a group, its dots escaped, so the grammar matches each name and
-// no other.
-const REPOSITORY = `(${REPOSITORIES.map(name => name.replaceAll('.', '\\.')).join('|')})`;
-// A git source that passes: one of REPOSITORIES at a full commit sha, as the manifest names
-// it and as the codeload tarball pnpm 12 resolves it to, with the repository and the sha as
-// its groups.
+export const GIT_SOURCES = new Map([
+    [
+        'honeyglass/lean-code',
+        new Map([
+            ['@honeyglass/utils', 'honeyglass/utils'],
+            ['@honeyglass/actions', 'honeyglass/actions'],
+        ]),
+    ],
+    [
+        'honeyglass/oriko',
+        new Map([
+            ['@honeyglass/utils', 'honeyglass/utils'],
+            ['@honeyglass/adx', 'honeyglass/adx'],
+        ]),
+    ],
+    ['honeyglass/adx', new Map([['@honeyglass/utils', 'honeyglass/utils']])],
+    ['honeyglass/actions', new Map([['@honeyglass/utils', 'honeyglass/utils']])],
+]);
+// The git sources of a checked repository: none for one the list does not name, or none named.
+export const sourcesOf = (repository) => (repository === undefined ? undefined : GIT_SOURCES.get(repository)) ?? new Map();
+// Every repository a git source of the list pins, as a group, its dots escaped. The grammar
+// reads a pin of any of them; the checked repository's entry decides the name it stands under.
+const REPOSITORY = `(${[
+    ...new Set([...GIT_SOURCES.values()].flatMap(sources => [...sources.values()])),
+]
+    .map(name => name.replaceAll('.', '\\.'))
+    .join('|')})`;
+// A git source the grammar reads: such a repository at a full commit sha, as the manifest
+// names it and as the codeload tarball pnpm 12 resolves it to, with the repository and the sha
+// as its groups.
 const SHA = '([0-9a-f]{40})';
 export const PINNED = new RegExp(`^github:${REPOSITORY}#${SHA}$`);
 const CODELOAD = `https://codeload\\.github\\.com/${REPOSITORY}/tar\\.gz/${SHA}`;
 // A resolved version that starts with such a tarball, which peer suffixes may follow.
 export const HOSTED = new RegExp(`^${CODELOAD}`);
-// A git-hosted package key: the name, then the tarball's URL, its repository and its sha as
+// A git-hosted package key: its name, then the tarball's URL, its repository and its sha as
 // groups.
-export const GITHOSTED_KEY = new RegExp(`^${NAME}@(${CODELOAD})$`);
+export const GITHOSTED_KEY = new RegExp(`^(${NAME})@(${CODELOAD})$`);
 // A peer on the first level behind such a tarball: the name at a registry version, or at
 // such a tarball with no peer of its own, as pnpm writes adx's peer on utils.
 export const PINNED_PEER = new RegExp(`^${NAME}@(?:${VERSION}|${CODELOAD}(?=\\)))`);
@@ -91,7 +118,9 @@ export const ALONE = /(?!)/;
 export const VERSION_HEADS = { hosted: HOSTED, registry: RESOLVED };
 // The heads of a snapshot key: the name at such a tarball, or at a registry version.
 export const KEY_HEADS = { hosted: new RegExp(`^${NAME}@${CODELOAD}`), registry: PEER };
-const TARBALLS = new RegExp(CODELOAD, 'g');
+// A tarball at a value's head, or a peer's or a key's after its name, with the name as a group
+// where the text holds one.
+const TARBALLS = new RegExp(`(?:^|\\()(?:(${NAME})@)?${CODELOAD}`, 'g');
 // The version a git-hosted package holds, without a range or a peer suffix.
 export const EXACT_VERSION = new RegExp(`^${VERSION}$`);
 // A dependency's name, of which pnpm makes a folder below node_modules and asks the registry.
@@ -103,7 +132,7 @@ const TAG = '(?![xX](?![A-Za-z0-9-]))[A-Za-z][A-Za-z0-9-]*';
 /**
  * A package's own peer range as the lockfile holds it, which pnpm installs from where the peer
  * is missing: registry ranges and dist-tags joined by '||', an npm: alias to a registry range,
- * or one of REPOSITORIES at a full commit sha, as adx names utils.
+ * or a repository of GIT_SOURCES at a full commit sha, as adx names utils.
  *
  * The person approves this list; every other form is refused.
  */
@@ -111,9 +140,15 @@ export const PEER_RANGE = new RegExp(`^(?:\\s*(?:${SIMPLE}|${TAG})(?:\\s*\\|\\|\
 // A package's sha512 in SRI form, the hash pnpm checks the fetched bytes against; no weaker one.
 export const INTEGRITY = /^sha512-[A-Za-z0-9+/]{86}==$/;
 /**
- * The commits a resolved version or key names by their tarballs, at its head and in its peers.
+ * The commits a resolved version or key names by their tarballs, at its head and in its peers,
+ * each with the name it stands under: the one before it in the text, or `head` at a version's
+ * head, which names none.
  *
  * Only a text of the lockfile's grammar may be asked, where a tarball stands nowhere but
  * there.
  */
-export const pinsOf = (text) => [...text.matchAll(TARBALLS)].map(([, repository = '', sha = '']) => ({ repository, sha }));
+export const pinsOf = (text, head) => [...text.matchAll(TARBALLS)].map(([, name = head, repository = '', sha = '']) => ({
+    name,
+    repository,
+    sha,
+}));

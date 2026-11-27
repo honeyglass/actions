@@ -300,6 +300,14 @@ expect 'a tracked path in a node_modules folder is refused before the install' "
   "node_modules/zod/index.js ($modules)
 packages/a/Node_Modules/local ($modules)" check "$repository"
 
+# a submodule in a node_modules folder, which git holds no blob for: the path alone answers, and
+# the check reads neither its blob nor the worktree there
+dir=$(repo submodule)
+git -C "$dir" add -A
+git -C "$dir" update-index --add --cacheinfo "160000,$(printf '1%.0s' {1..40}),vendor/node_modules/sub"
+expect 'a submodule in a node_modules folder is refused by its path, its blob never read' "$dir" 1 \
+  "vendor/node_modules/sub ($modules)" check "$repository"
+
 dir=$(repo step)
 git -C "$dir" add -A
 expect_step 'the action runs check for the mode check' "$dir" 0 '' check

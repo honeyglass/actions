@@ -30,7 +30,7 @@ export const manifestHits = async ({ path, text }, { kindOf }) => {
     const values = DEPENDENCY_FIELDS.flatMap(field => Object.entries(manifest[field] ?? {}).map(([name, value]) => ({
         field: [field, name],
         value,
-        fault: (specifier) => specifierFault(specifier, where),
+        fault: (specifier) => specifierFault(specifier, where, name),
     })));
     return [
         ...(await valueHits(path, values)),

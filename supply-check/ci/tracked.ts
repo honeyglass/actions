@@ -11,7 +11,7 @@ import { lstat, readFile, readlink } from 'node:fs/promises';
 import { setTimeout as wait } from 'node:timers/promises';
 import { $try, anyError, isRefusal } from '@honeyglass/utils/ts';
 import type { Refusal } from '@honeyglass/utils/ts';
-import { isSupplyFile, supplyHits } from '../index.ts';
+import { isInModules, isSupplyFile, supplyHits } from '../index.ts';
 import type { Fetch, SupplyHit } from '../index.ts';
 import { entriesIn, indexedFiles } from './git.ts';
 import { kindsIn, LINK_MODE } from './kind.ts';
@@ -36,11 +36,20 @@ export const trackedHits = async (
   const entries = await entriesIn(top, { tree: undefined, paths: [] });
   if (isRefusal(entries)) return entries;
   const read = entries.filter(({ path, mode }) => isSupplyFile(path, mode));
-  const files = await indexedFiles(top, read);
+  // a path in node_modules fails by its path alone, so its blob, which git may not even hold as
+  // one, is never read, nor compared with the worktree
+  const files = await indexedFiles(
+    top,
+    read.filter(({ path }) => isInModules(path) === false),
+  );
   if (isRefusal(files)) return files;
+  const unread = read.filter(({ path }) => isInModules(path));
   const kindOf = kindsIn(entries);
   const hits = await supplyHits({
-    staged: files.map(({ path, mode, bytes }) => ({ path, mode, text: bytes.toString() })),
+    staged: [
+      ...files.map(({ path, mode, bytes }) => ({ path, mode, text: bytes.toString() })),
+      ...unread.map(({ path, mode }) => ({ path, mode, text: '' })),
+    ],
     deleted: entries.some(({ path }) => path === WORKSPACE) ? [] : [WORKSPACE],
     kindOf: async path => kindOf(path),
     repository,

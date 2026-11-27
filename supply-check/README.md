@@ -2,10 +2,13 @@
 
 The supply check keeps local links and unsafe pnpm settings out of a repository. It is an
 allow-list: a dependency value passes only as a registry version or range, an npm: alias,
-`workspace:`, `catalog:`, a `link:` to a folder the repository tracks, or a full commit of
-`github:honeyglass/utils` or `github:honeyglass/adx` that GitHub's API places on the main
-branch of that repository, one commit per repository. In `pnpm-lock.yaml` a peer suffix names
-such a commit's tarball only where the value itself is one, on the first level of an importer's
+`workspace:`, `catalog:`, a `link:` to a folder the repository tracks, or a full commit of a
+git source the checked repository may use, which GitHub's API places on the main branch of the
+repository it pins, one commit per repository. `GIT_SOURCES` in
+[`core/grammar.ts`](core/grammar.ts) names, per checked repository, each package name and the
+one repository it may pin under that name; a repository the list does not name, and
+`staged --no-repository`, may use no git source. In `pnpm-lock.yaml` a peer suffix names such a
+commit's tarball only where the value itself is one, on the first level of an importer's
 version or a snapshot key. A package's own peer range there passes only as registry ranges and
 dist-tags, an npm: alias to a registry range or such a commit, the name of an importer's, a
 snapshot's or a peer dependency only as an npm package name whose parts start with no dot, and
@@ -30,7 +33,7 @@ Run it before the install, and with `mode: links` after it. Pin the action to a 
 | Input        | Default                    | Meaning                                                                                                                     |
 | :----------- | :------------------------- | :-------------------------------------------------------------------------------------------------------------------------- |
 | `mode`       | `check`                    | `check` reads every tracked dependency file before the install; `links` refuses a symlink that leaves the checkout after it |
-| `repository` | `${{ github.repository }}` | the owner/name whose approved exceptions apply                                                                              |
+| `repository` | `${{ github.repository }}` | the owner/name whose approved exceptions and git sources apply                                                              |
 
 A hit prints one line and fails the step. The action sets up Node 24 and enables Corepack, and
 both stay on for the steps after it, so the job's `pnpm install` runs the pnpm that `package.json`
@@ -41,10 +44,16 @@ pins. How the action installs and runs the check stands in [SECURITY.md](../SECU
 ```json
 {
   "dependencies": {
-    "@honeyglass/actions": "github:honeyglass/actions#<40-character commit sha>"
+    "@honeyglass/actions": "github:honeyglass/actions#<40-character commit sha>",
+    "@honeyglass/utils": "github:honeyglass/utils#<the commit its peerDependency names>"
   }
 }
 ```
+
+The package names `@honeyglass/utils` as a dependency and as a peerDependency. A consumer whose
+`pnpm-workspace.yaml` sets `blockExoticSubdeps: true`, as lean-code's template does, names
+`@honeyglass/utils` itself, at the commit this package's `peerDependencies` names; without it pnpm
+stops with `ERR_PNPM_EXOTIC_SUBDEP`, as a git source deep in the tree is not allowed.
 
 `@honeyglass/actions/supply-check` exports the check's functions, listed in
 [`index.ts`](index.ts).
@@ -65,7 +74,9 @@ level, read as the index holds it or as the tree `--tree` names; a path neither 
 deleted, and a folder stands for every file below it. A staged `.gitattributes` widens the check
 to every tracked supply file, whose attributes git is asked about. The target of a `link:` or a
 symlink is looked up in the index or the tree, never in the worktree. The check reads the form
-alone, with no network and no token, and `--no-repository` applies no repository's exceptions.
+alone, with no network and no token, and `--no-repository` applies no repository's exceptions
+and allows no git source. A path in a `node_modules` folder is refused by its path, its blob
+unread.
 
 It prints one JSON object per line on stdout:
 

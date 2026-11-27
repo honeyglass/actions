@@ -6,15 +6,16 @@
  * Each path is one the commit stages, as git names it from the top level; one the index, or the
  * tree the caller names, does not list counts as deleted, and a folder stands for every file
  * below it. A staged .gitattributes has git asked about every tracked supply file, since a new
- * line there may convert one the commit leaves as it is. A pinned commit of an allowed
- * repository passes on its form alone, and CI asks GitHub after the push. Each answer is one
- * JSON line on stdout, a SupplyHit or the Refusal, and a throw is a refusal of kind bug, so
- * exit 1 without a line comes only from a Node that failed before the program ran.
+ * line there may convert one the commit leaves as it is. A path in a node_modules folder fails by
+ * its path, its blob unread. A pinned commit of a git source the repository may use passes on its
+ * form alone, and CI asks GitHub after the push. Each answer is one JSON line on stdout, a
+ * SupplyHit or the Refusal, and a throw is a refusal of kind bug, so exit 1 without a line comes
+ * only from a Node that failed before the program ran.
  *
  * @example process.exitCode = await stagedMain(['honeyglass/blog', '--', 'package.json']);
  */
 import { $try, causeText, isRefusal } from '@honeyglass/utils/ts';
-import { conversionHits, isAttributesFile, isSupplyFile, supplyHits } from "../index.js";
+import { conversionHits, isAttributesFile, isInModules, isSupplyFile, supplyHits, } from "../index.js";
 import { attributesOf, entriesIn, indexedFiles, topOf } from "./git.js";
 import { kindsIn, LINK_MODE } from "./kind.js";
 import { STEP } from "./constants.js";
@@ -91,15 +92,21 @@ const stagedHits = async (top, request) => {
     const converting = paths.some(isAttributesFile) ? await trackedSupplyFiles(top, tree) : read;
     if (isRefusal(converting))
         return converting;
-    const files = await indexedFiles(top, read, tree);
+    // a path in node_modules fails by its path alone, so its blob, which git may not even hold as
+    // one, is never read
+    const files = await indexedFiles(top, read.filter(({ path }) => isInModules(path) === false), tree);
     if (isRefusal(files))
         return files;
+    const unread = read.filter(({ path }) => isInModules(path));
     const converted = await conversionsIn(top, tree, converting);
     if (isRefusal(converted))
         return converted;
     const looked = { tree, top, kinds: undefined, failed: [] };
     const hits = await supplyHits({
-        staged: files.map(({ path, mode, bytes }) => ({ path, mode, text: bytes.toString() })),
+        staged: [
+            ...files.map(({ path, mode, bytes }) => ({ path, mode, text: bytes.toString() })),
+            ...unread.map(({ path, mode }) => ({ path, mode, text: '' })),
+        ],
         deleted: paths.filter(path => present.has(path) === false),
         kindOf: path => kindAt(looked, path),
         repository,

@@ -3,11 +3,12 @@
  *
  * RANGE, ALIAS, WORKSPACE, CATALOG: a registry range, an npm: alias, workspace: and catalog:.
  * RESOLVED, PEER, PINNED_PEER, ALONE, isResolved: a resolved version with its peer suffixes.
- * REPOSITORIES: the GitHub repositories a git source may name, each in full.
- * PINNED, HOSTED, GITHOSTED_KEY, EXACT_VERSION: one of them at a full commit sha.
+ * GIT_SOURCES, sourcesOf: per checked repository, each package name and the repository it
+ * may pin.
+ * PINNED, HOSTED, GITHOSTED_KEY, EXACT_VERSION: a repository of them at a full commit sha.
  * VERSION_HEADS, KEY_HEADS: the heads of a resolved version and of a snapshot key.
  * PACKAGE_NAME, PEER_RANGE, INTEGRITY: a dependency's name, a package's peer range, its hash.
- * pinsOf: the commits a resolved version or key names by their tarballs.
+ * pinsOf: the commits a resolved version or key names by their tarballs, each with its name.
  *
  * Each is an allow-list: a value of any other form fails the check that reads it.
  *
@@ -29,11 +30,15 @@ export declare const CATALOG: RegExp;
 export declare const RESOLVED: RegExp;
 export declare const PEER: RegExp;
 /**
- * The GitHub repositories whose commits a git source may pin, each named in full.
+ * The git sources each checked repository may use: a package name, and the GitHub repository
+ * whose full commit it may pin under that name, each named in full and matched as written.
  *
- * No owner and no pattern opens a third; only the person adds one.
+ * The checked repository is the one the caller names, as for the template's exceptions. One the
+ * list does not name may use no git source, nor may a check without a repository. The person
+ * approves this list; only the person adds to it.
  */
-export declare const REPOSITORIES: string[];
+export declare const GIT_SOURCES: ReadonlyMap<string, ReadonlyMap<string, string>>;
+export declare const sourcesOf: (repository: string | undefined) => ReadonlyMap<string, string>;
 export declare const PINNED: RegExp;
 export declare const HOSTED: RegExp;
 export declare const GITHOSTED_KEY: RegExp;
@@ -52,19 +57,22 @@ export declare const PACKAGE_NAME: RegExp;
 /**
  * A package's own peer range as the lockfile holds it, which pnpm installs from where the peer
  * is missing: registry ranges and dist-tags joined by '||', an npm: alias to a registry range,
- * or one of REPOSITORIES at a full commit sha, as adx names utils.
+ * or a repository of GIT_SOURCES at a full commit sha, as adx names utils.
  *
  * The person approves this list; every other form is refused.
  */
 export declare const PEER_RANGE: RegExp;
 export declare const INTEGRITY: RegExp;
 /**
- * The commits a resolved version or key names by their tarballs, at its head and in its peers.
+ * The commits a resolved version or key names by their tarballs, at its head and in its peers,
+ * each with the name it stands under: the one before it in the text, or `head` at a version's
+ * head, which names none.
  *
  * Only a text of the lockfile's grammar may be asked, where a tarball stands nowhere but
  * there.
  */
-export declare const pinsOf: (text: string) => {
+export declare const pinsOf: (text: string, head: string) => {
+    name: string;
     repository: string;
     sha: string;
 }[];
